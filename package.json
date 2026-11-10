@@ -12,9 +12,11 @@
     "build": "pnpm --recursive build",
     "start": "pnpm --filter @saystreet/backend start",
     "typecheck": "pnpm --recursive typecheck",
-    "db:up": "docker compose up -d --wait"
+    "db:up": "docker compose up -d --wait",
+    "test": "vitest run"
   },
   "devDependencies": {
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
   }
 }

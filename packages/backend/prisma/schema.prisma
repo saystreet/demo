@@ -49,3 +49,12 @@ model WebhookEvent {
 
   @@map("webhook_events")
 }
+
+/// Cached Channel3 responses: searches, products, website names. Payment-time price checks skip it.
+model CatalogCache {
+  key       String   @id
+  payload   Json
+  fetchedAt DateTime @default(now()) @map("fetched_at") @db.Timestamptz
+
+  @@map("catalog_cache")
+}

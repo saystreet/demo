@@ -9,7 +9,9 @@
     "typecheck": "prisma generate && tsc",
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",
-    "paypal:smoke": "tsx --env-file-if-exists=../../.env scripts/paypal-smoke.ts"
+    "paypal:smoke": "tsx --env-file-if-exists=../../.env scripts/paypal-smoke.ts",
+    "record-fixtures": "tsx --env-file-if-exists=../../.env scripts/record-fixtures.ts",
+    "test": "vitest run"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.6",

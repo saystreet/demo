@@ -6,6 +6,7 @@ import type { Health } from '@saystreet/shared'
 import { Hono } from 'hono'
 import { accountRoutes } from './account/routes'
 import { adminVault } from './admin/vault'
+import { catalogRoutes } from './catalog/routes'
 import { port } from './env'
 import { paypalWebhook } from './webhooks/paypal'
 
@@ -26,6 +27,7 @@ app.get('/health', (c) => c.json<Health>({ ok: true }))
 const api = new Hono()
 api.route('/', accountRoutes)
 api.route('/webhooks/paypal', paypalWebhook)
+api.route('/', catalogRoutes)
 api.all('*', (c) => c.json({ error: 'not_found' }, 404))
 api.onError((error, c) => {
   console.error(error)

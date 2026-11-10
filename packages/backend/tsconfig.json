@@ -1,7 +1,15 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "types": ["node"]
+    "types": [
+      "node"
+    ],
+    "resolveJsonModule": true
   },
-  "include": ["src", "scripts", "tsdown.config.ts", "prisma.config.ts"]
+  "include": [
+    "src",
+    "scripts",
+    "tsdown.config.ts",
+    "prisma.config.ts"
+  ]
 }
