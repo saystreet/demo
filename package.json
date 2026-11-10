@@ -10,8 +10,9 @@
   "scripts": {
     "dev": "pnpm --recursive --parallel --stream dev",
     "build": "pnpm --recursive build",
-    "start": "node packages/backend/dist/index.js",
-    "typecheck": "pnpm --recursive typecheck"
+    "start": "pnpm --filter @saystreet/backend start",
+    "typecheck": "pnpm --recursive typecheck",
+    "db:up": "docker compose up -d --wait"
   },
   "devDependencies": {
     "typescript": "^7.0.2"

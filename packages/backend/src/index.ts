@@ -4,8 +4,10 @@ import { serve } from '@hono/node-server'
 import { serveStatic } from '@hono/node-server/serve-static'
 import type { Health } from '@saystreet/shared'
 import { Hono } from 'hono'
-
-const port = Number(process.env.PORT ?? 8080)
+import { accountRoutes } from './account/routes'
+import { adminVault } from './admin/vault'
+import { port } from './env'
+import { paypalWebhook } from './webhooks/paypal'
 
 // The built frontend. The path is the same from src/ (dev) and dist/ (prod).
 const frontendDist = relative(process.cwd(), fileURLToPath(new URL('../../frontend/dist', import.meta.url)))
@@ -22,8 +24,16 @@ app.use('*', async (c, next) => {
 app.get('/health', (c) => c.json<Health>({ ok: true }))
 
 const api = new Hono()
+api.route('/', accountRoutes)
+api.route('/webhooks/paypal', paypalWebhook)
 api.all('*', (c) => c.json({ error: 'not_found' }, 404))
+api.onError((error, c) => {
+  console.error(error)
+  return c.json({ error: 'server_error' }, 500)
+})
 app.route('/api', api)
+
+app.route('/admin/vault', adminVault)
 
 // Static files, then index.html for every other path so react-router can handle it.
 app.use('*', serveStatic({ root: frontendDist }))

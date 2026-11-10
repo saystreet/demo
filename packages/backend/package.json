@@ -3,17 +3,24 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "build": "tsdown",
-    "typecheck": "tsc"
+    "dev": "prisma generate && tsx watch --env-file-if-exists=../../.env src/index.ts",
+    "build": "prisma generate && tsdown",
+    "start": "prisma migrate deploy && node dist/index.js",
+    "typecheck": "prisma generate && tsc",
+    "db:migrate": "prisma migrate dev",
+    "db:studio": "prisma studio",
+    "paypal:smoke": "tsx --env-file-if-exists=../../.env scripts/paypal-smoke.ts"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.6",
+    "@prisma/adapter-pg": "7.10.1",
+    "@prisma/client": "7.10.1",
     "@saystreet/shared": "workspace:*",
     "hono": "^4.13.17"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
+    "prisma": "7.10.1",
     "tsdown": "^0.23.7",
     "tsx": "^4.23.15"
   }

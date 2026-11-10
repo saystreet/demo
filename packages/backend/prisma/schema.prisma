@@ -1,0 +1,51 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum VoiceMode {
+  screen_reader
+  spoken
+
+  @@map("voice_mode")
+}
+
+/// A demo account is one environment: its own name, address, limits, chats and orders.
+/// vaultId is the account's own PayPal wallet. It is null for demo accounts, which pay
+/// with the shared sandbox buyer (DEMO_VAULT_ID), resolved at payment time.
+model Account {
+  id                    String    @id @db.Uuid
+  name                  String
+  shipLine1             String    @map("ship_line1")
+  shipLine2             String?   @map("ship_line2")
+  shipCity              String    @map("ship_city")
+  shipState             String    @map("ship_state")
+  shipPostal            String    @map("ship_postal")
+  shipCountry           String    @default("US") @map("ship_country")
+  vaultId               String?   @map("vault_id")
+  perPurchaseLimitCents Int       @default(8000) @map("per_purchase_limit_cents")
+  weeklyLimitCents      Int       @default(20000) @map("weekly_limit_cents")
+  voiceMode             VoiceMode @map("voice_mode")
+  speechRate            Float     @default(1) @map("speech_rate") @db.Real
+  soundsOn              Boolean   @default(true) @map("sounds_on")
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  lastSeenAt            DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz
+
+  @@map("accounts")
+}
+
+/// Every PayPal webhook call that passed the signature check, stored once by PayPal's event id.
+/// Duplicates (PayPal retries) are dropped by the primary key.
+model WebhookEvent {
+  id          String    @id
+  type        String
+  payload     Json
+  receivedAt  DateTime  @default(now()) @map("received_at") @db.Timestamptz
+  processedAt DateTime? @map("processed_at") @db.Timestamptz
+
+  @@map("webhook_events")
+}
