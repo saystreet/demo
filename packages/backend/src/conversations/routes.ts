@@ -1,14 +1,24 @@
-import type { ApiError, ConversationState, ConversationSummary, TurnRequest, TurnResponse } from '@saystreet/shared'
+import type {
+  ApiError,
+  ConversationState,
+  ConversationSummary,
+  OptionCard,
+  StartChatRequest,
+  TurnRequest,
+  TurnResponse,
+} from '@saystreet/shared'
 import { Hono } from 'hono'
 import { runAgentTurn } from '../agent/turn'
 import { isAffirmation, parseIntent } from '../amount/parse'
 import { type AuthEnv, requireAccount } from '../auth'
+import { CatalogUnavailable, getProductView, ProductNotFound } from '../catalog/service'
 import { db } from '../db'
+import type { Prisma } from '../generated/prisma/client'
 import { clientIp, consume, LIMITS } from '../limits'
 import { activeMandate, cancelMandate, cancelMandatesInConversation, confirmMandate, toMandateView } from '../mandate/engine'
 import { templates } from '../templates'
 import { respond } from './respond'
-import { addMessages, conversationState, createConversation, findConversation, listConversations, toSummary } from './service'
+import { addMessages, conversationState, createConversation, findConversation, listConversations, titleFrom, toSummary } from './service'
 
 export const conversationRoutes = new Hono<AuthEnv>()
 
@@ -29,6 +39,10 @@ conversationRoutes.post('/turn', requireAccount, async (c) => {
 
   // One turn at a time per chat: the agent chain on OpenAI must not fork.
   return withChatLock(conversation.id, async () => {
+    // An empty chat made with "New chat" takes its title from the first thing said.
+    if (conversation.title === 'New chat' && (await db().message.count({ where: { conversationId: conversation.id } })) === 0) {
+      await db().conversation.update({ where: { id: conversation.id }, data: { title: titleFrom(text) } })
+    }
     const already = await addMessages(conversation.id, [{ role: 'user', text }])
     const waiting = await activeMandate(account.id, conversation.id)
     const intent = parseIntent(text)
@@ -110,6 +124,54 @@ async function lastSpoken(conversationId: string): Promise<string | null> {
 
 conversationRoutes.get('/conversations', requireAccount, async (c) => {
   return c.json<{ conversations: ConversationSummary[] }>({ conversations: await listConversations(c.var.account.id) })
+})
+
+// POST /api/conversations { product_id?, merchant_domain?, source_url? }
+// "Ask about this product" on the product page: a new chat where the product is option one,
+// so "does it whistle?" or "buy it" refer to it. Without product_id: an empty new chat.
+conversationRoutes.post('/conversations', requireAccount, async (c) => {
+  const account = c.var.account
+  const body = await c.req.json<StartChatRequest>().catch(() => ({}) as StartChatRequest)
+
+  if (typeof body.product_id !== 'string' || !body.product_id) {
+    const conversation = await createConversation(account.id, 'New chat')
+    return c.json<TurnResponse>(await respond(conversation.id, { messages: [], sound: null }), 201)
+  }
+
+  let product
+  try {
+    product = await getProductView(body.product_id, typeof body.merchant_domain === 'string' ? body.merchant_domain : null)
+  } catch (error) {
+    if (error instanceof ProductNotFound) return c.json<ApiError>({ error: 'not_found' }, 404)
+    if (error instanceof CatalogUnavailable) return c.json<ApiError>({ error: 'catalog_unavailable' }, 502)
+    throw error
+  }
+  const sourceUrl = typeof body.source_url === 'string' && body.source_url ? body.source_url : null
+  const option: OptionCard = {
+    n: 1,
+    product_id: product.product_id,
+    source: sourceUrl ? 'link' : 'catalog',
+    source_url: sourceUrl,
+    title: product.title,
+    merchant: product.merchant,
+    merchant_domain: product.merchant_domain,
+    image_url: product.image_url,
+    image_alt: product.image_alt,
+    item_cents: product.item_cents,
+    shipping_cents: product.shipping_cents,
+    total_cents: product.total_cents,
+    rating: product.rating,
+    rating_count: product.rating_count,
+  }
+
+  const conversation = await createConversation(account.id, product.title)
+  await db().conversation.update({ where: { id: conversation.id }, data: { options: [option] as unknown as Prisma.InputJsonValue } })
+  const response = await respond(conversation.id, {
+    messages: [{ role: 'system', source: 'system', text: templates.askAbout(product.title), attachment: { kind: 'options', options: [option] } }],
+    options: [option],
+    sound: 'reply',
+  })
+  return c.json<TurnResponse>(response, 201)
 })
 
 conversationRoutes.get('/conversations/:id', requireAccount, async (c) => {

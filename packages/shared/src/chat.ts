@@ -33,6 +33,15 @@ export type ConversationState = {
   mandate: MandateView | null // the payment waiting for confirmation in this chat, if any
 }
 
+// POST /api/conversations  "Ask about this product": a new chat with the product as option one.
+// Pass the product page's product_id and merchant_domain (and source_url for a pasted link).
+// Without product_id: an empty chat. Returns TurnResponse (201).
+export type StartChatRequest = {
+  product_id?: string
+  merchant_domain?: string
+  source_url?: string
+}
+
 // POST /api/turn
 export type TurnRequest = {
   conversation_id?: string // omit to start a new chat

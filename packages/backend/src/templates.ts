@@ -24,6 +24,7 @@ export const templates = {
     `Found it: ${option.title} on ${option.merchant}, ${formatUSD(option.total_cents)} delivered. Say buy it to get the total, or ask about it.`,
   linkFailed: () => "I couldn't read that link. Try again, or tell me what you're looking for.",
   linkNotProduct: () => "That link isn't a product page. Open the product itself and copy its link.",
+  askAbout: (title: string) => `Ask me anything about the ${title}. Or say buy it.`,
   noOptions: () => 'I found nothing that fits. Try different words or a higher budget.',
   storeUnknown: () => "I don't know that store. Here's what I found everywhere.",
   catalogDown: () => "I can't reach the store catalog right now. Try again in a moment.",
