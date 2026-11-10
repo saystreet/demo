@@ -49,6 +49,24 @@ export const templates = {
   walletMissing: () => "PayPal isn't connected for this demo yet. Nothing was paid.",
   alreadyPaid: () => "That's already paid.",
 
+  // Orders and delivery.
+  tracking: (o: { title: string; statusWords: string; carrier: string | null; trackingLast4: string | null; etaWeekday: string | null }) => {
+    const carrier = o.carrier && o.trackingLast4 ? ` ${o.carrier}, tracking ending ${o.trackingLast4}.` : ''
+    const eta = o.etaWeekday ? ` It should arrive ${o.etaWeekday}.` : ''
+    return `Your ${o.title} is ${o.statusWords}.${carrier}${eta}`
+  },
+  ordersList: (orders: { title: string; statusWords: string }[]) => {
+    if (orders.length === 0) return 'You have no orders yet.'
+    const count = orders.length === 1 ? 'one recent order' : `${orders.length} recent orders`
+    const items = orders.map((o, i) => `${['One', 'Two', 'Three', 'Four', 'Five'][i]}: ${o.title}, ${o.statusWords}.`)
+    return [`You have ${count}.`, ...items].join(' ')
+  },
+  noOrder: () => "You don't have an order that fits. Say \"my orders\" to hear them.",
+  refundStarted: (totalCents: number) => `Refund of ${formatUSD(totalCents)} started.`,
+  refundDone: (totalCents: number) => `Refund of ${formatUSD(totalCents)} done.`,
+  alreadyRefunded: () => 'That order is already refunded.',
+  refundFailed: () => "PayPal didn't accept the refund. Nothing changed. Try again in a moment.",
+
   notHeard: () => "I didn't catch that.",
   busy: () => 'The demo is busy right now. Try again in a few minutes.',
   error: () => 'Something went wrong on my side. Nothing was paid. Try again.',

@@ -2,9 +2,9 @@ import { randomUUID } from 'node:crypto'
 import type { AccountView, ShippingAddress, VoiceMode } from '@saystreet/shared'
 import { type Account, db } from '../db'
 import { env } from '../env'
+import { sampleOrderEvents, sampleOrders } from '../orders/samples'
 
-// What every new demo account starts with (spec section 4.1).
-// Sample orders are added here once orders and the catalog exist.
+// What every new demo account starts with (spec section 4.1), plus four sample orders.
 const DEMO_CUSTOMER = {
   name: 'Alex Morgan',
   shipLine1: '500 Demo Street',
@@ -16,14 +16,20 @@ const DEMO_CUSTOMER = {
 }
 
 export async function createDemoAccount(voiceMode: VoiceMode): Promise<Account> {
-  return db().account.create({
-    data: {
-      id: randomUUID(),
-      ...DEMO_CUSTOMER,
-      // No wallet of its own: the account pays with the shared sandbox buyer (see walletFor).
-      vaultId: null,
-      voiceMode,
-    },
+  return db().$transaction(async (tx) => {
+    const account = await tx.account.create({
+      data: {
+        id: randomUUID(),
+        ...DEMO_CUSTOMER,
+        // No wallet of its own: the account pays with the shared sandbox buyer (see walletFor).
+        vaultId: null,
+        voiceMode,
+      },
+    })
+    const orders = sampleOrders(account.id, shipToOf(account))
+    await tx.order.createMany({ data: orders })
+    await tx.orderEvent.createMany({ data: sampleOrderEvents(orders) })
+    return account
   })
 }
 

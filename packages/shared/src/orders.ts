@@ -34,3 +34,10 @@ export type OrderView = OrderSummary & {
   conversation_id: string | null
   events: { status: string; note: string | null; created_at: string }[] // oldest first
 }
+
+// POST /api/orders/:id/return
+export type ReturnResponse = {
+  order: OrderView
+  result: 'done' | 'started' | 'already' | 'failed' // started: PayPal is still processing the refund
+  say: string // "Refund of $34.99 done."
+}

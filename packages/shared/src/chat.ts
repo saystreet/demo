@@ -2,7 +2,7 @@
 
 import type { OptionCard } from './catalog'
 import type { MandateView } from './mandate'
-import type { OrderView } from './orders'
+import type { OrderSummary, OrderView } from './orders'
 
 // Short sound the frontend plays for a response.
 export type Sound = 'sent' | 'reply' | 'options' | 'mandate' | 'paid' | 'refused' | 'cancelled' | 'error'
@@ -12,6 +12,7 @@ export type Sound = 'sent' | 'reply' | 'options' | 'mandate' | 'paid' | 'refused
 export type MessageAttachment =
   | { kind: 'options'; options: OptionCard[] }
   | { kind: 'mandate'; mandate: MandateView }
+  | { kind: 'orders'; orders: OrderSummary[] } // order cards with "Order details" links
 
 export type Message = {
   id: string

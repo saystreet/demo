@@ -4,6 +4,9 @@ import { CatalogUnavailable, getProductView, ProductNotFound, searchOptions } fr
 import type { NewMessage } from '../conversations/service'
 import type { Account } from '../db'
 import { type Decision, proposeMandate } from '../mandate/engine'
+import { db } from '../db'
+import { toOrderSummary } from '../orders/service'
+import { refundOrder, resolveForReturn, resolveForTracking, type Resolved, statusWords, trackingPhrase } from '../orders/tracking'
 import { templates } from '../templates'
 
 // The agent's tools. Strict mode: every field is required, optional ones are nullable.
@@ -57,6 +60,41 @@ export const TOOLS: FunctionTool[] = [
       additionalProperties: false,
     },
   },
+  {
+    type: 'function',
+    name: 'list_orders',
+    description: "The person's five most recent orders with their delivery status. The system reads them aloud.",
+    strict: true,
+    parameters: { type: 'object', properties: {}, required: [], additionalProperties: false },
+  },
+  {
+    type: 'function',
+    name: 'track_order',
+    description: 'Where an order is: status, carrier, tracking number, expected day. The system reads it aloud.',
+    strict: true,
+    parameters: {
+      type: 'object',
+      properties: {
+        order_id: { type: ['string', 'null'], description: 'Order id from list_orders; null for the order the person means in this chat.' },
+      },
+      required: ['order_id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    type: 'function',
+    name: 'request_return',
+    description: 'Return an order and refund it in full. The money goes back to the person. The system says the result.',
+    strict: true,
+    parameters: {
+      type: 'object',
+      properties: {
+        order_id: { type: ['string', 'null'], description: 'Order id from list_orders; null for the order the person means in this chat.' },
+      },
+      required: ['order_id'],
+      additionalProperties: false,
+    },
+  },
 ]
 
 export type ToolState = {
@@ -91,6 +129,12 @@ export async function runTool(name: string, rawArgs: string, state: ToolState): 
       return getProduct(args, state)
     case 'propose_purchase':
       return proposePurchase(args, state)
+    case 'list_orders':
+      return listOrdersTool(state)
+    case 'track_order':
+      return trackOrder(args, state)
+    case 'request_return':
+      return requestReturn(args, state)
     default:
       return { output: JSON.stringify({ error: 'UNKNOWN_TOOL' }), terminal: false }
   }
@@ -196,4 +240,63 @@ async function proposePurchase(args: Record<string, unknown>, state: ToolState):
     ),
     terminal: true,
   }
+}
+
+async function listOrdersTool(state: ToolState): Promise<ToolResult> {
+  const orders = await db().order.findMany({ where: { accountId: state.account.id }, orderBy: { createdAt: 'desc' }, take: 5 })
+  state.messages.push({
+    role: 'system',
+    source: 'system',
+    text: templates.ordersList(orders.map((o) => ({ title: o.title, statusWords: statusWords(o) }))),
+    attachment: orders.length ? { kind: 'orders', orders: orders.map(toOrderSummary) } : null,
+  })
+  return {
+    output: JSON.stringify({ orders: orders.map((o, i) => ({ n: i + 1, order_id: o.id, title: o.title, status: statusWords(o) })) }),
+    terminal: true,
+  }
+}
+
+async function trackOrder(args: Record<string, unknown>, state: ToolState): Promise<ToolResult> {
+  const resolved = await resolveForTracking(state.account.id, state.conversationId, orderIdArg(args))
+  const unresolved = whenUnresolved(resolved, state)
+  if (unresolved) return unresolved
+  const { order } = resolved as Extract<Resolved, { order: unknown }>
+  state.messages.push({ role: 'system', source: 'system', text: trackingPhrase(order), attachment: { kind: 'orders', orders: [toOrderSummary(order)] } })
+  return { output: JSON.stringify({ order_id: order.id, title: order.title, status: statusWords(order) }), terminal: true }
+}
+
+async function requestReturn(args: Record<string, unknown>, state: ToolState): Promise<ToolResult> {
+  const resolved = await resolveForReturn(state.account.id, state.conversationId, orderIdArg(args))
+  const unresolved = whenUnresolved(resolved, state)
+  if (unresolved) return unresolved
+  const result = await refundOrder((resolved as Extract<Resolved, { order: unknown }>).order)
+  state.messages.push({
+    role: 'system',
+    source: 'system',
+    text: result.phrase,
+    attachment: { kind: 'orders', orders: [toOrderSummary(result.order)] },
+  })
+  return { output: JSON.stringify({ order_id: result.order.id, result: result.status }), terminal: true }
+}
+
+// No order: the server says so. Several: the model asks which one, by title.
+function whenUnresolved(resolved: Resolved, state: ToolState): ToolResult | null {
+  if ('order' in resolved) return null
+  if (resolved.error === 'NO_ORDER') {
+    state.messages.push({ role: 'system', source: 'system', text: templates.noOrder() })
+    return { output: JSON.stringify({ error: 'NO_ORDER' }), terminal: true }
+  }
+  return {
+    output: JSON.stringify({
+      error: 'AMBIGUOUS',
+      orders: resolved.candidates.slice(0, 5).map((o) => ({ order_id: o.id, title: o.title, status: statusWords(o) })),
+      instruction:
+        'If one title clearly matches what the person said, call again now with its order_id. Otherwise ask which one, naming each by a short version of its title.',
+    }),
+    terminal: false,
+  }
+}
+
+function orderIdArg(args: Record<string, unknown>): string | null {
+  return typeof args.order_id === 'string' && args.order_id ? args.order_id : null
 }
