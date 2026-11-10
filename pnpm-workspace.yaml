@@ -6,3 +6,7 @@ allowBuilds:
   # Downloads the schema engine Prisma Migrate needs.
   '@prisma/engines': true
   prisma: true
+
+permissions:
+  tsdown:
+    skills: true

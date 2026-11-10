@@ -145,3 +145,17 @@
     opacity: 1;
   }
 }
+
+/* Loading lines stay invisible for the first 400 ms: a fast load shows no flash of "Loading…",
+   a slow one still says what is happening. Reduced motion keeps the delay, drops the fade. */
+@keyframes loading-reveal {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.loading-line {
+  animation: loading-reveal 200ms ease-out 400ms both;
+}

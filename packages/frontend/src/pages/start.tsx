@@ -6,6 +6,7 @@ import { useCreateAccount } from '../api/queries'
 import { BrailleCell } from '../components/braille'
 import { usePageTitle } from '../components/page'
 import { ApiError } from '../lib/api'
+import { useAnnouncer } from '../lib/announcer'
 import { cn } from '../lib/cn'
 
 // The demo starts here (spec 16.3): no email, no password, one question. The browser can't tell
@@ -31,34 +32,53 @@ export default function StartPage() {
   const navigate = useNavigate()
   const create = useCreateAccount()
   const heading = useRef<HTMLHeadingElement>(null)
+  const { say } = useAnnouncer()
 
   useEffect(() => {
     heading.current?.focus()
   }, [])
 
+  const errorText = (error: unknown) => (error instanceof ApiError && error.say ? error.say : 'Something went wrong. Try again.')
+
+  // The button's own text changes too, but a screen reader only hears it through the live region.
   const choose = (mode: VoiceMode) => {
     if (create.isPending) return
-    create.mutate({ voice_mode: mode }, { onSuccess: () => navigate('/chat', { replace: true }) })
+    say(['Creating your demo account…'])
+    create.mutate(
+      { voice_mode: mode },
+      {
+        onSuccess: () => navigate('/chat', { replace: true }),
+        onError: (error) => say([errorText(error)]),
+      },
+    )
   }
 
-  const error = create.error instanceof ApiError ? (create.error.say ?? 'Something went wrong. Try again.') : create.error ? 'Something went wrong. Try again.' : null
+  const error = create.error ? errorText(create.error) : null
 
   return (
-    <main id="main" className="mx-auto flex min-h-dvh max-w-2xl flex-col px-4 py-8 sm:px-8 sm:py-14">
+    <main id="main" className="mx-auto flex min-h-dvh max-w-2xl flex-col px-4 py-6 sm:px-8 sm:py-14">
       <a href="https://saystreet.app" className="flex min-h-12 items-center self-start">
-        <img src="/brand/lockup-for-dark-bg.svg" alt="SayStreet, about the product" width="180" height="36" className="h-9 w-auto" />
+        <img src="/brand/lockup-for-dark-bg.svg" alt="SayStreet: about the product on saystreet.app" width="180" height="36" className="h-9 w-auto" />
       </a>
 
-      <div className="mt-12 sm:mt-20">
-        <h1 ref={heading} tabIndex={-1} className="title text-6xl sm:text-7xl">
+      <div className="mt-8 sm:mt-16">
+        <h1 ref={heading} tabIndex={-1} className="title text-5xl sm:text-7xl">
           Create your <span className="text-accent">demo</span> account
         </h1>
-        <p className="mt-6 max-w-[34em] text-xl leading-relaxed text-ink-muted">
-          No email, no password. You get a sandbox PayPal wallet, a demo address and a few sample orders.
+        {/* People often arrive here straight from the hackathon page, so say what this is. */}
+        <p className="mt-5 text-xl font-bold sm:text-2xl">Shop by voice. Pay only what you said.</p>
+        <p className="mt-3 max-w-[36em] text-lg leading-relaxed text-ink-muted">
+          A shopping assistant for blind and low-vision people: find, buy, track and return in one conversation.{' '}
+          <a href="https://saystreet.app" className="whitespace-nowrap font-semibold text-ink underline hover:text-accent">
+            About SayStreet
+          </a>
+        </p>
+        <p className="mt-3 max-w-[36em] text-lg leading-relaxed text-ink-muted">
+          No email or password: you get a sandbox PayPal wallet, a demo address and sample orders.
         </p>
       </div>
 
-      <section aria-labelledby="voice-title" className="mt-12">
+      <section aria-labelledby="voice-title" className="mt-9 sm:mt-12">
         <h2 id="voice-title" className="text-2xl font-bold">
           How should SayStreet talk to you?
         </h2>
@@ -90,8 +110,18 @@ export default function StartPage() {
             )
           })}
         </div>
-        {error && <p className="mt-4 font-semibold text-bad">{error}</p>}
-        <p className="mt-5 text-ink-muted">You can change this anytime in Settings.</p>
+        {error && (
+          <p aria-hidden="true" className="mt-4 font-semibold text-bad">
+            {error}
+          </p>
+        )}
+        <ul className="mt-5 grid gap-1.5 text-ink-muted">
+          <li>
+            Not using a screen reader? Choose <span className="font-semibold text-ink">Read replies aloud</span>.
+          </li>
+          <li>No microphone? You can type instead.</li>
+          <li>You can change this anytime in Settings.</li>
+        </ul>
       </section>
 
       <p className="mt-auto pt-14 text-sm text-ink-muted">

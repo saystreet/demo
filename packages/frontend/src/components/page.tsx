@@ -44,7 +44,7 @@ export function Badge({ children, tone = 'plain' }: { children: ReactNode; tone?
 
 export function LoadingLine({ label }: { label: string }) {
   return (
-    <p className="flex items-center gap-3 py-6 text-ink-muted">
+    <p className="loading-line flex items-center gap-3 py-6 text-ink-muted">
       <BrailleCell mode="think" className="h-6 text-accent" />
       {label}
     </p>
