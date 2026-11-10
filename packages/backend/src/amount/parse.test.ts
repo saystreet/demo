@@ -39,6 +39,11 @@ describe('parseIntent: speech recognition output', () => {
     ['pay a hundred dollars', 10000],
     ['pay 40 dollars', 4000],
     ['pay thirty-nine dollars ninety-nine', 3999],
+    // Exact gpt-transcribe output for spoken test phrases.
+    ['Pay thirty four ninety nine.', 3499],
+    ['Pay forty one ninety nine.', 4199],
+    ['Pay twelve oh five.', 1205],
+    ['Pay thirty nine dollars and ninety nine cents.', 3999],
   ])('%s → %i', (text, cents) => {
     expect(parseIntent(text)).toEqual({ type: 'pay', cents })
   })
