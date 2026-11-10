@@ -2,6 +2,7 @@ import type { ApiError, TranscribeResponse } from '@saystreet/shared'
 import { Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import { type AuthEnv, requireAccount } from '../auth'
+import { clientIp, consume, LIMITS } from '../limits'
 import { templates } from '../templates'
 import { transcribe } from './transcribe'
 
@@ -21,6 +22,13 @@ speechRoutes.post(
     if (!(audio instanceof File) || audio.size === 0) return c.json<ApiError>({ error: 'missing_audio' }, 400)
     if (audio.size > MAX_BYTES) return c.json<ApiError>({ error: 'audio_too_large' }, 413)
     if (!AUDIO_TYPES.test(audio.type)) return c.json<ApiError>({ error: 'unsupported_audio' }, 400)
+
+    const over = await consume([
+      { key: 'transcriptions:all', window: 'day', max: LIMITS.transcriptionsPerDay },
+      { key: `transcriptions:account:${c.var.account.id}`, window: 'day', max: LIMITS.transcriptionsPerAccountDay },
+      { key: `transcriptions:ip:${clientIp(c)}`, window: 'day', max: LIMITS.transcriptionsPerIpDay },
+    ])
+    if (over) return c.json<ApiError>({ error: 'busy', say: templates.busy() }, 429)
 
     try {
       const text = await transcribe(audio, audio.name || filenameFor(audio.type))

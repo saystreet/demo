@@ -19,6 +19,10 @@ export function appUrl(): string {
 }
 
 // Flat shipping added to every item price (Channel3 has no shipping data).
+export const SHIPPING_FLAT_CENTS = 500
+// Business days from order to delivery.
+export const DELIVERY_DAYS = 3
+
 export function shippingCents(): number {
-  return Number(env('SHIPPING_FLAT_CENTS') ?? 500)
+  return SHIPPING_FLAT_CENTS
 }

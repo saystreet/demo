@@ -33,5 +33,23 @@ export type CreateAccountRequest = { voice_mode: VoiceMode }
 // as `Authorization: Bearer <token>`. Signing out is just forgetting the token.
 export type SessionResponse = { token: string; account: AccountView }
 
+// PATCH /api/me  Any subset; each settings block saves on its own. Returns AccountView.
+// ship_to.name is also the account name. A new address applies from the next purchase.
+// Errors: 400 { error: 'invalid_address', field, say } (field: AddressField),
+// 400 { error: 'invalid_limits' | 'invalid_voice_mode' | 'invalid_speech_rate' | 'invalid_name' }.
+export type UpdateAccountRequest = {
+  name?: string
+  ship_to?: Omit<ShippingAddress, 'country'> & { country?: 'US' }
+  voice_mode?: VoiceMode
+  speech_rate?: 0.75 | 1 | 1.25
+  sounds_on?: boolean
+  limits?: { per_purchase_cents?: number; weekly_cents?: number } // $10–$500 and $10–$2,000
+}
+
 // Any API error. 401 with error "signed_out" means: no token, bad token or no such account.
-export type ApiError = { error: string }
+// 429 with error "busy" or "too_many_accounts": a demo limit was reached; speak `say`.
+export type ApiError = {
+  error: string
+  field?: string // which form field is wrong
+  say?: string // a phrase to show or read aloud
+}

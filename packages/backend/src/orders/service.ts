@@ -1,13 +1,13 @@
 import { randomUUID } from 'node:crypto'
 import type { FulfillmentStatus, OrderSummary, OrderView, PaymentStatus, ShippingAddress } from '@saystreet/shared'
 import { db } from '../db'
-import { env } from '../env'
+import { DELIVERY_DAYS } from '../env'
 import type { Mandate, Order, OrderEvent, Prisma } from '../generated/prisma/client'
 
 export type OrderWithEvents = Order & { events: OrderEvent[] }
 
 // Delivery date: DELIVERY_DAYS business days after the order (spec 7.5). Dates are UTC.
-export function estimatedDelivery(from: Date, days = Number(env('DELIVERY_DAYS') ?? 3)): Date {
+export function estimatedDelivery(from: Date, days = DELIVERY_DAYS): Date {
   const date = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate()))
   let left = days
   while (left > 0) {

@@ -3,14 +3,12 @@ import { Hono } from 'hono'
 import { db } from '../db'
 import type { Prisma } from '../generated/prisma/client'
 import { PayPalError, verifyWebhookSignature } from '../paypal'
+import { type PayPalEvent, processEvent } from './process'
 
-// POST /api/webhooks/paypal. PayPal calls it when a payment changes later:
-// a pending capture completes or is denied, a refund goes through.
-// Steps 1 and 2 of spec section 8.5: check the signature, store the event once.
-// Updating orders and mandates (steps 3 to 5) comes with the orders table;
-// until then events stay with processed_at = null.
-
-type PayPalEvent = { id: string; event_type: string; resource?: { id?: string } }
+// POST /api/webhooks/paypal (spec 8.5). PayPal calls it when a payment changes later.
+// 1. Verify the signature with PayPal. 2. Store the event once by its id.
+// 3–5. Update the order and mandate, tell the chat (webhooks/process.ts). 6. Mark it processed.
+// If processing fails we answer 500: PayPal retries, and the stored but unprocessed event runs again.
 
 export const paypalWebhook = new Hono()
 
@@ -30,11 +28,23 @@ paypalWebhook.post('/', async (c) => {
   if (!verified) return c.json<ApiError>({ error: 'invalid_signature' }, 400)
 
   const event = JSON.parse(raw) as PayPalEvent
-  const { count } = await db().webhookEvent.createMany({
+  await db().webhookEvent.createMany({
     data: [{ id: event.id, type: event.event_type, payload: event as unknown as Prisma.InputJsonValue }],
     skipDuplicates: true,
   })
-  console.log(`PayPal webhook ${event.event_type} ${event.resource?.id ?? ''}${count === 0 ? ' (duplicate)' : ''}`)
+  const stored = await db().webhookEvent.findUnique({ where: { id: event.id } })
+  if (stored?.processedAt) {
+    console.log(`PayPal webhook ${event.event_type} ${event.resource?.id ?? ''}: duplicate`)
+    return c.json({ ok: true })
+  }
 
-  return c.json({ ok: true })
+  try {
+    const outcome = await processEvent(event)
+    await db().webhookEvent.update({ where: { id: event.id }, data: { processedAt: new Date() } })
+    console.log(`PayPal webhook ${event.event_type} ${event.resource?.id ?? ''}: ${outcome}`)
+    return c.json({ ok: true })
+  } catch (error) {
+    console.error(`PayPal webhook ${event.event_type} ${event.id} failed`, error)
+    return c.json<ApiError>({ error: 'processing_failed' }, 500)
+  }
 })

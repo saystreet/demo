@@ -4,6 +4,7 @@ import { runAgentTurn } from '../agent/turn'
 import { isAffirmation, parseIntent } from '../amount/parse'
 import { type AuthEnv, requireAccount } from '../auth'
 import { db } from '../db'
+import { clientIp, consume, LIMITS } from '../limits'
 import { activeMandate, cancelMandate, cancelMandatesInConversation, confirmMandate, toMandateView } from '../mandate/engine'
 import { templates } from '../templates'
 import { respond } from './respond'
@@ -63,6 +64,18 @@ conversationRoutes.post('/turn', requireAccount, async (c) => {
           await respond(conversation.id, { already, messages: [{ role: 'system', source: 'system', text: last }], sound: 'reply' }),
         )
       }
+    }
+
+    // Only turns that reach the model count: "pay …", "cancel" and "repeat" are free.
+    const over = await consume([
+      { key: 'turns:all', window: 'day', max: LIMITS.turnsPerDay },
+      { key: `turns:account:${account.id}`, window: 'day', max: LIMITS.turnsPerAccountDay },
+      { key: `turns:ip:${clientIp(c)}`, window: 'day', max: LIMITS.turnsPerIpDay },
+    ])
+    if (over) {
+      return c.json<TurnResponse>(
+        await respond(conversation.id, { already, messages: [{ role: 'system', source: 'system', text: templates.busy() }], sound: 'error' }),
+      )
     }
 
     const fresh = (await findConversation(account.id, conversation.id)) ?? conversation

@@ -245,3 +245,14 @@ model CatalogCache {
 
   @@map("catalog_cache")
 }
+
+/// Usage counters for the demo limits: what was counted (e.g. "turns:account:<id>"), in which
+/// day or hour, how many times. Kept in Postgres so restarts and deploys don't reset them.
+model UsageCounter {
+  key         String
+  windowStart DateTime @map("window_start") @db.Timestamptz
+  count       Int      @default(0)
+
+  @@id([key, windowStart])
+  @@map("usage_counters")
+}

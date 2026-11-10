@@ -11,7 +11,8 @@
     "db:studio": "prisma studio",
     "paypal:smoke": "tsx --env-file-if-exists=../../.env scripts/paypal-smoke.ts",
     "record-fixtures": "tsx --env-file-if-exists=../../.env scripts/record-fixtures.ts",
-    "test": "vitest run"
+    "test": "vitest run",
+    "smoke": "tsx scripts/smoke.ts"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.6",

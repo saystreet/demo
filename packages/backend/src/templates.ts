@@ -77,5 +77,6 @@ export const templates = {
 
   notHeard: () => "I didn't catch that.",
   busy: () => 'The demo is busy right now. Try again in a few minutes.',
+  tooManyAccounts: () => 'Too many demo accounts were created from here. Try again in an hour.',
   error: () => 'Something went wrong on my side. Nothing was paid. Try again.',
 }

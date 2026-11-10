@@ -3,6 +3,7 @@
 export type Health = { ok: true }
 
 export * from './account'
+export * from './address'
 export * from './catalog'
 export * from './chat'
 export * from './mandate'
