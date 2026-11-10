@@ -38,6 +38,8 @@ export type C3Product = {
   key_features?: string[] | null
   structured_attributes?: Record<string, string[]> | null
   ratings?: { value: number; count: number } | null
+  // "electronics/…/mobile-phones/smart-phones" vs "…/mobile-phone-accessories/…": tells a phone from its case.
+  category?: { path?: { slug: string; title: string }[] | null } | null
   // The variant this listing is ("256 GB", "Black"), when the store says.
   variants?: { selected?: { name: string; label: string }[] | null } | null
   offers: C3Offer[]

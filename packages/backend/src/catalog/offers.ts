@@ -38,10 +38,26 @@ export function pickOffer(product: C3Product, domain?: string): C3Offer | null {
 // Shop subdomains are skipped: "buy.gazelle.com" → "Gazelle", not "Buy".
 const SHOP_PREFIX = new Set(['www', 'buy', 'shop', 'store', 'm', 'us', 'en'])
 
+// Store names a domain can't spell out ("totalwireless" is two words).
+const KNOWN_NAMES: Record<string, string> = {
+  totalwireless: 'Total Wireless', bestbuy: 'Best Buy', homedepot: 'The Home Depot', publicgoods: 'Public Goods',
+  officedepot: 'Office Depot', bhphotovideo: 'B&H Photo', 'williams-sonoma': 'Williams Sonoma', crateandbarrel: 'Crate & Barrel',
+  surlatable: 'Sur La Table', samsclub: "Sam's Club", jcpenney: 'JCPenney', qvc: 'QVC', hsn: 'HSN', cdw: 'CDW', abt: 'Abt',
+  stadiumgoods: 'Stadium Goods', kickscrew: 'KicksCrew', holabirdsports: 'Holabird Sports', hamiltonbeach: 'Hamilton Beach',
+  dickssportinggoods: "Dick's Sporting Goods", footlocker: 'Foot Locker', newegg: 'Newegg',
+}
+
+export function knownStoreName(domain: string): string | null {
+  const parts = normalizeDomain(domain).split('.')
+  while (parts.length > 2 && SHOP_PREFIX.has(parts[0]!)) parts.shift()
+  return KNOWN_NAMES[parts[0] ?? ''] ?? null
+}
+
 export function merchantFromDomain(domain: string): string {
   const parts = normalizeDomain(domain).split('.')
   while (parts.length > 2 && SHOP_PREFIX.has(parts[0]!)) parts.shift()
   const name = parts[0] ?? domain
+  if (KNOWN_NAMES[name]) return KNOWN_NAMES[name]
   return name.charAt(0).toUpperCase() + name.slice(1)
 }
 

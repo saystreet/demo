@@ -4,7 +4,8 @@ import { cached, DAY, HOUR } from './cache'
 import { type C3Dimensions, type C3Measure, type C3Offer, type C3Product, type C3SearchResponse, Channel3Error, channel3 } from './channel3'
 import { fixtureProduct, fixtureSearch } from './fixtures'
 import { estimatedDelivery } from '../orders/service'
-import { cleanAttributes, mainImage, merchantFromDomain, normalizeDomain, offerPriceCents, pickOffer, sentenceCase, usefulAlt } from './offers'
+import { type Listing, officialDomain, rankListings } from './rank'
+import { cleanAttributes, knownStoreName, mainImage, merchantFromDomain, normalizeDomain, offerPriceCents, pickOffer, sentenceCase, usefulAlt } from './offers'
 
 // Catalog: search, product detail and store names on top of Channel3, with a Postgres
 // cache and a fallback to recorded fixtures when Channel3 fails.
@@ -50,19 +51,27 @@ export async function searchOptions(input: SearchInput): Promise<SearchResult> {
 
   const skip = new Set(input.skip ?? [])
   const limit = input.limitCents ?? null
-  const candidates: { product: C3Product; offer: C3Offer; item: number }[] = []
+  const candidates: Listing[] = []
   for (const product of response.products) {
-    if (skip.has(product.id)) continue
-    const offer = pickOffer(product, store?.domain)
+    // In a named store, that store's offer; otherwise the brand's own store if it sells it, else the cheapest.
+    const official = store ? null : officialDomain(product)
+    const offer = store ? pickOffer(product, store.domain) : ((official && pickOffer(product, official)) ?? pickOffer(product))
     const item = offer && offerPriceCents(offer)
     if (!offer || !item) continue
     if (budget !== null && item + shipping > budget) continue
     candidates.push({ product, offer, item })
   }
-  // The catalog's order is by relevance and stays: putting what fits the limit first would answer
-  // "iPhone" with phone cases. Options over the limit are marked and said instead.
-  const ranked = candidates
+  // One option per product, best offer each, ordered by fit (catalog/rank.ts). "More" skips whole
+  // products already offered, so another store's listing of one doesn't come back.
+  const groups = rankListings(query, candidates, { totalLimitCents: limit, shippingCents: shipping }).filter(
+    (group) => !group.members.some((m) => skip.has(m.product.id)),
+  )
+  // Accessories only when nothing of the kind asked for is left: "iphone 17" with one phone found
+  // is one option, not the phone and two skins. "More" then offers the accessories.
+  const onTopic = groups.filter((g) => !g.offTopic)
+  const ranked = (onTopic.length ? onTopic : groups).map((g) => g.best)
   const picked = ranked.slice(0, MAX_OPTIONS)
+  const moreLeft = groups.length > picked.length
 
   const names = await merchantNames(picked.map((p) => p.offer.domain))
   const options = picked.map(({ product, offer, item }, i): OptionCard => {
@@ -89,7 +98,7 @@ export async function searchOptions(input: SearchInput): Promise<SearchResult> {
     }
   })
 
-  return { options, more: ranked.length > MAX_OPTIONS, store, store_unknown: storeUnknown, source }
+  return { options, more: moreLeft, store, store_unknown: storeUnknown, source }
 }
 
 // "256 GB, Black" from the listing's selected variant, if it says.
@@ -99,12 +108,14 @@ function variantLabel(product: C3Product): string | null {
 }
 
 async function searchWithFallback(query: string, maxPrice: number | null, storeDomain: string | null) {
-  const key = `search:${query.toLowerCase()}:${maxPrice ?? ''}:${storeDomain ?? ''}`
+  // v2: 20 results per search (v1 cached 10).
+  const key = `search:v2:${query.toLowerCase()}:${maxPrice ?? ''}:${storeDomain ?? ''}`
   try {
     const response = await cached(key, DAY, () =>
       channel3.search({
         query,
-        limit: 10,
+        // More than three, so several listings of one product still leave three different ones.
+        limit: 20,
         filters: {
           availability: ['InStock'],
           ...(maxPrice !== null ? { price: { max_price: maxPrice } } : {}),
@@ -253,10 +264,23 @@ async function merchantNames(domains: string[]): Promise<Map<string, string>> {
   const entries = await Promise.all(
     unique.map(async (domain) => {
       const store = await resolveStore(domain)
-      return [domain, store?.name ?? merchantFromDomain(domain)] as const
+      return [domain, storeDisplayName(store?.name ?? null, domain)] as const
     }),
   )
   return new Map(entries)
+}
+
+// Channel3's store names are the stores' own account names: "totalwireless.com", "B&H Parent Admin
+// Acct", "DILLARD'S", "Native Union  US". Known stores get the name people use; the rest are tidied.
+function storeDisplayName(name: string | null, domain: string): string {
+  const known = knownStoreName(domain)
+  if (known) return known
+  let text = (name ?? '').replace(/\s+/g, ' ').trim()
+  if (!text || text.includes('.') || /\b(acct|admin|account)\b/i.test(text)) return merchantFromDomain(domain)
+  text = text.replace(/\s*-?\s*\b(global|us|usa)$/i, '').trim()
+  // ALL CAPS reads letter by letter on some voices: "DILLARD'S" → "Dillard's".
+  if (text.length > 4 && text === text.toUpperCase()) text = text.toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase())
+  return text || merchantFromDomain(domain)
 }
 
 function describe(error: unknown): string {

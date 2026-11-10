@@ -57,7 +57,8 @@ describe('names', () => {
   })
   it('makes a fallback store name from a domain', () => {
     expect(merchantFromDomain('target.com')).toBe('Target')
-    expect(merchantFromDomain('www.bestbuy.com')).toBe('Bestbuy')
+    expect(merchantFromDomain('www.bestbuy.com')).toBe('Best Buy')
+    expect(merchantFromDomain('totalwireless.com')).toBe('Total Wireless')
     expect(merchantFromDomain('buy.gazelle.com')).toBe('Gazelle')
     expect(merchantFromDomain('shop.lego.com')).toBe('Lego')
   })
