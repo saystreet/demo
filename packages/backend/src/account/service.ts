@@ -13,8 +13,12 @@ import { sampleOrderEvents, sampleOrders } from '../orders/samples'
 const DEMO_NAMES = ['Sarah Johnson', 'Michael Brown', 'Emily Davis', 'David Miller', 'Jessica Wilson', 'James Anderson'] as const
 const DEMO_ADDRESS = { shipLine1: '1 Main St', shipLine2: null, shipCity: 'San Jose', shipState: 'CA', shipPostal: '95131', shipCountry: 'US' }
 
+// Spending limits a new account starts with: enough for most of the catalog. Settings goes from
+// $50 to $500 a purchase and from $250 to $2,000 a week.
+const DEMO_LIMITS = { perPurchaseLimitCents: 25_000, weeklyLimitCents: 100_000 }
+
 function demoCustomer() {
-  return { name: DEMO_NAMES[Math.floor(Math.random() * DEMO_NAMES.length)]!, ...DEMO_ADDRESS }
+  return { name: DEMO_NAMES[Math.floor(Math.random() * DEMO_NAMES.length)]!, ...DEMO_ADDRESS, ...DEMO_LIMITS }
 }
 
 export async function createDemoAccount(voiceMode: VoiceMode): Promise<Account> {

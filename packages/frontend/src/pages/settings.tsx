@@ -199,10 +199,13 @@ function VoiceSection({ account, save, statusFor }: SectionProps) {
 
 // ---- Spending limits ---------------------------------------------------------
 
-const PER_PURCHASE = [4000, 8000, 15000]
-const WEEKLY = [10000, 20000, 50000]
+// Within the server's range ($10–$500 a purchase, $10–$2,000 a week). New accounts start at
+// $250 and $1,000: enough for most of the catalog, and a refusal is still easy to show (pick $50).
+const PER_PURCHASE = [5000, 10000, 25000, 50000]
+const WEEKLY = [25000, 50000, 100000, 200000]
 
-const dollars = (cents: number) => (cents % 100 === 0 ? `$${cents / 100}` : formatUSD(cents))
+// "$1,000", and cents only when there are any: "$31.09".
+const dollars = (cents: number) => (cents % 100 === 0 ? `$${(cents / 100).toLocaleString('en-US')}` : formatUSD(cents))
 
 // The presets, plus the account's own limit when it isn't one of them, so the page never shows
 // a limit that isn't the real one.
@@ -219,8 +222,8 @@ function LimitsSection({ account, save, statusFor }: SectionProps) {
     <Section title="Spending limits">
       <p className="-mt-1 text-ink-muted">SayStreet won't pay more than these, even if a higher amount is said.</p>
       <p className="mt-2 mb-6">
-        This week: <span className="data">{formatUSD(spent)}</span> of <span className="data">{dollars(weekly)}</span> spent,{' '}
-        <span className="data">{formatUSD(left)}</span> left.
+        This week: <span className="data">{dollars(spent)}</span> of <span className="data">{dollars(weekly)}</span> spent,{' '}
+        <span className="data">{dollars(left)}</span> left.
       </p>
       <div className="grid gap-8">
         <div>
