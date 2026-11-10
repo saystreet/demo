@@ -39,7 +39,8 @@ export async function listConversations(accountId: string): Promise<Conversation
   return rows.map(toSummary)
 }
 
-export async function conversationState(conversation: Conversation): Promise<ConversationState> {
+// Without the waiting mandate; the route adds it (it needs the mandate engine).
+export async function conversationState(conversation: Conversation): Promise<Omit<ConversationState, 'mandate'>> {
   const rows = await db().message.findMany({
     where: { conversationId: conversation.id },
     orderBy: { createdAt: 'desc' },

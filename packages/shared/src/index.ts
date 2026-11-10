@@ -5,4 +5,6 @@ export type Health = { ok: true }
 export * from './account'
 export * from './catalog'
 export * from './chat'
+export * from './mandate'
 export * from './money'
+export * from './orders'

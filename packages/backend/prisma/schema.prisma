@@ -35,9 +35,141 @@ model Account {
   createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz
   lastSeenAt            DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz
 
-  conversations Conversation[]
+  conversations  Conversation[]
+  mandates       Mandate[]
+  orders         Order[]
+  auditEvents    AuditEvent[]
+  priceOverrides PriceOverride[]
 
   @@map("accounts")
+}
+
+enum MandateStatus {
+  proposed
+  paying
+  paid
+  pending
+  rejected
+  failed
+  expired
+  cancelled
+
+  @@map("mandate_status")
+}
+
+/// A purchase the agent proposed and the person must confirm by saying the exact total.
+/// The price comes from the catalog, never from the model. One active mandate per account
+/// (partial unique index in the migration). The id is also the PayPal-Request-Id.
+model Mandate {
+  id             String        @id @db.Uuid
+  accountId      String        @map("account_id") @db.Uuid
+  account        Account       @relation(fields: [accountId], references: [id])
+  conversationId String        @map("conversation_id") @db.Uuid
+  conversation   Conversation  @relation(fields: [conversationId], references: [id])
+  productId      String        @map("product_id")
+  productSource  String        @default("catalog") @map("product_source")
+  sourceUrl      String?       @map("source_url")
+  offerDomain    String        @map("offer_domain")
+  title          String
+  merchant       String
+  imageUrl       String?       @map("image_url")
+  itemCents      Int           @map("item_cents")
+  shippingCents  Int           @map("shipping_cents")
+  totalCents     Int           @map("total_cents")
+  budgetCents    Int?          @map("budget_cents")
+  /// Copy of the shipping address when the mandate was made (ShippingAddress).
+  shipTo         Json          @map("ship_to")
+  status         MandateStatus
+  rejectReason   String?       @map("reject_reason")
+  liveItemCents  Int?          @map("live_item_cents")
+  heardCents     Int?          @map("heard_cents")
+  confirmMethod  String?       @map("confirm_method")
+  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  expiresAt      DateTime      @map("expires_at") @db.Timestamptz
+  decidedAt      DateTime?     @map("decided_at") @db.Timestamptz
+
+  order Order?
+
+  @@index([accountId, status])
+  @@map("mandates")
+}
+
+/// A paid (or pending) purchase, or a sample one created with the demo account.
+model Order {
+  id                String     @id @db.Uuid
+  accountId         String     @map("account_id") @db.Uuid
+  account           Account    @relation(fields: [accountId], references: [id])
+  mandateId         String?    @unique @map("mandate_id") @db.Uuid
+  mandate           Mandate?   @relation(fields: [mandateId], references: [id])
+  conversationId    String?    @map("conversation_id") @db.Uuid
+  isSample          Boolean    @default(false) @map("is_sample")
+  paypalOrderId     String?    @unique @map("paypal_order_id")
+  captureId         String?    @unique @map("capture_id")
+  /// paid | pending | failed | refunded | refund_pending
+  paymentStatus     String     @map("payment_status")
+  /// processing | shipped | delivered | returned
+  fulfillmentStatus String     @map("fulfillment_status")
+  productId         String     @map("product_id")
+  productSource     String     @default("catalog") @map("product_source")
+  sourceUrl         String?    @map("source_url")
+  merchantDomain    String     @map("merchant_domain")
+  title             String
+  merchant          String
+  imageUrl          String?    @map("image_url")
+  itemCents         Int        @map("item_cents")
+  shippingCents     Int        @map("shipping_cents")
+  totalCents        Int        @map("total_cents")
+  shipTo            Json       @map("ship_to")
+  carrier           String?
+  trackingNumber    String?    @map("tracking_number")
+  estimatedDelivery DateTime?  @map("estimated_delivery") @db.Date
+  refundId          String?    @map("refund_id")
+  createdAt         DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  refundedAt        DateTime?  @map("refunded_at") @db.Timestamptz
+
+  events OrderEvent[]
+
+  @@index([accountId, createdAt(sort: Desc)])
+  @@map("orders")
+}
+
+/// Order history for the order page: ordered, paid, shipped, delivered, refunded...
+model OrderEvent {
+  id        String   @id @db.Uuid
+  orderId   String   @map("order_id") @db.Uuid
+  order     Order    @relation(fields: [orderId], references: [id])
+  status    String
+  note      String?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([orderId, createdAt])
+  @@map("order_events")
+}
+
+/// What the money engine decided and why, one readable line each (shown in Demo tools).
+model AuditEvent {
+  id        String   @id @db.Uuid
+  accountId String   @map("account_id") @db.Uuid
+  account   Account  @relation(fields: [accountId], references: [id])
+  mandateId String?  @map("mandate_id") @db.Uuid
+  type      String
+  line      String
+  data      Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([accountId, createdAt])
+  @@map("audit_events")
+}
+
+/// Demo tools: a changed item price for one account, seen only by the payment-time price check.
+model PriceOverride {
+  accountId String  @map("account_id") @db.Uuid
+  account   Account @relation(fields: [accountId], references: [id])
+  productId String  @map("product_id")
+  itemCents Int     @map("item_cents")
+
+  @@id([accountId, productId])
+  @@map("price_overrides")
 }
 
 /// A chat, like in ChatGPT. Deleting only sets deletedAt.
@@ -60,6 +192,7 @@ model Conversation {
   pendingToolOutputs Json    @default("[]") @map("pending_tool_outputs")
 
   messages Message[]
+  mandates Mandate[]
 
   @@index([accountId, updatedAt(sort: Desc)])
   @@map("conversations")

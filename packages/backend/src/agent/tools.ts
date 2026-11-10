@@ -2,6 +2,8 @@ import { formatUSD, type OptionCard } from '@saystreet/shared'
 import type { FunctionTool } from 'openai/resources/responses/responses'
 import { CatalogUnavailable, getProductView, ProductNotFound, searchOptions } from '../catalog/service'
 import type { NewMessage } from '../conversations/service'
+import type { Account } from '../db'
+import { type Decision, proposeMandate } from '../mandate/engine'
 import { templates } from '../templates'
 
 // The agent's tools. Strict mode: every field is required, optional ones are nullable.
@@ -38,13 +40,34 @@ export const TOOLS: FunctionTool[] = [
       additionalProperties: false,
     },
   },
+  {
+    type: 'function',
+    name: 'propose_purchase',
+    description:
+      'Prepare a purchase of one option for the person to confirm. The system reads the total and asks them to say it. Nothing is paid by this call.',
+    strict: true,
+    parameters: {
+      type: 'object',
+      properties: {
+        option_n: { type: ['integer', 'null'], enum: [1, 2, 3, null], description: 'Option number the person chose.' },
+        product_id: { type: ['string', 'null'], description: 'Product id, if no option number fits.' },
+        budget_cents: { type: ['integer', 'null'], description: 'The budget the person gave in this chat, in cents.' },
+      },
+      required: ['option_n', 'product_id', 'budget_cents'],
+      additionalProperties: false,
+    },
+  },
 ]
 
 export type ToolState = {
+  account: Account
+  conversationId: string
   options: OptionCard[] | null // current options, updated by search
   optionsChanged: boolean
   messages: NewMessage[] // server phrases to add after the agent's own text
   usedListing: boolean // the reply is based on a product listing
+  decision: Decision | null // set when propose_purchase made (or refused) a mandate
+  waiting: { title: string } | null // a mandate waiting for confirmation in this chat
 }
 
 export type ToolResult = {
@@ -66,6 +89,8 @@ export async function runTool(name: string, rawArgs: string, state: ToolState): 
       return searchProducts(args, state)
     case 'get_product':
       return getProduct(args, state)
+    case 'propose_purchase':
+      return proposePurchase(args, state)
     default:
       return { output: JSON.stringify({ error: 'UNKNOWN_TOOL' }), terminal: false }
   }
@@ -136,5 +161,39 @@ async function getProduct(args: Record<string, unknown>, state: ToolState): Prom
     if (error instanceof ProductNotFound) return { output: JSON.stringify({ error: 'UNKNOWN_PRODUCT' }), terminal: false }
     if (error instanceof CatalogUnavailable) return { output: JSON.stringify({ error: 'CATALOG_UNAVAILABLE' }), terminal: false }
     throw error
+  }
+}
+
+// The model's only money tool: it names an option, never a price. The engine takes the price
+// from the catalog, checks limits, and the server speaks the total. Nothing is paid here.
+async function proposePurchase(args: Record<string, unknown>, state: ToolState): Promise<ToolResult> {
+  const option =
+    typeof args.option_n === 'number'
+      ? state.options?.find((o) => o.n === args.option_n)
+      : typeof args.product_id === 'string'
+        ? state.options?.find((o) => o.product_id === args.product_id)
+        : undefined
+  if (!option) {
+    state.messages.push({ role: 'system', source: 'system', text: templates.unknownProduct() })
+    return { output: JSON.stringify({ error: 'UNKNOWN_PRODUCT' }), terminal: true }
+  }
+  const budget = typeof args.budget_cents === 'number' && args.budget_cents > 0 ? Math.round(args.budget_cents) : null
+  const decision = await proposeMandate({
+    account: state.account,
+    conversationId: state.conversationId,
+    productId: option.product_id,
+    merchantDomain: option.merchant_domain,
+    budgetCents: budget,
+  })
+  state.decision = decision
+  if (decision.view) state.waiting = { title: decision.view.title }
+  state.messages.push(...decision.messages)
+  return {
+    output: JSON.stringify(
+      decision.view
+        ? { mandate: 'waiting for the person to say the total', title: decision.view.title }
+        : { error: 'NOT_PROPOSED', said: decision.messages[0]?.text },
+    ),
+    terminal: true,
   }
 }

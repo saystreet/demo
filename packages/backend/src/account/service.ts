@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { AccountView, VoiceMode } from '@saystreet/shared'
+import type { AccountView, ShippingAddress, VoiceMode } from '@saystreet/shared'
 import { type Account, db } from '../db'
 import { env } from '../env'
 
@@ -39,28 +39,32 @@ export function walletFor(account: Account): Wallet | null {
   return shared ? { vaultId: shared, shared: true } : null
 }
 
-export function toAccountView(account: Account): AccountView {
+export function shipToOf(account: Account): ShippingAddress {
+  return {
+    name: account.name,
+    line1: account.shipLine1,
+    line2: account.shipLine2,
+    city: account.shipCity,
+    state: account.shipState,
+    postal: account.shipPostal,
+    country: 'US',
+  }
+}
+
+// spentThisWeekCents comes from orders/service spentThisWeek().
+export function toAccountView(account: Account, spentThisWeekCents: number): AccountView {
   const wallet = walletFor(account)
   return {
     id: account.id,
     name: account.name,
-    ship_to: {
-      name: account.name,
-      line1: account.shipLine1,
-      line2: account.shipLine2,
-      city: account.shipCity,
-      state: account.shipState,
-      postal: account.shipPostal,
-      country: 'US',
-    },
+    ship_to: shipToOf(account),
     voice_mode: account.voiceMode,
     speech_rate: account.speechRate as AccountView['speech_rate'],
     sounds_on: account.soundsOn,
     limits: {
       per_purchase_cents: account.perPurchaseLimitCents,
       weekly_cents: account.weeklyLimitCents,
-      // No orders table yet, so nothing can have been spent.
-      spent_this_week_cents: 0,
+      spent_this_week_cents: spentThisWeekCents,
     },
     wallet: {
       connected: wallet !== null,

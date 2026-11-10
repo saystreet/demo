@@ -5,6 +5,7 @@ import type { NewMessage } from '../conversations/service'
 import { type Account, db } from '../db'
 import { env, requireEnv } from '../env'
 import type { Conversation, Prisma } from '../generated/prisma/client'
+import type { Decision } from '../mandate/engine'
 import { templates } from '../templates'
 import { instructions } from './prompt'
 import { runTool, TOOLS, type ToolState } from './tools'
@@ -19,6 +20,7 @@ type PendingOutput = { call_id: string; output: string }
 export type AgentTurn = {
   messages: NewMessage[] // agent text first, then server phrases
   options: OptionCard[] | null // null: options didn't change
+  decision: Decision | null // a mandate propose_purchase made or refused
   failed: boolean
 }
 
@@ -28,12 +30,21 @@ function openai(): OpenAI {
   return client
 }
 
-export async function runAgentTurn(account: Account, conversation: Conversation, userText: string): Promise<AgentTurn> {
+export async function runAgentTurn(
+  account: Account,
+  conversation: Conversation,
+  userText: string,
+  waiting: { title: string } | null,
+): Promise<AgentTurn> {
   const state: ToolState = {
+    account,
+    conversationId: conversation.id,
     options: (conversation.options as OptionCard[] | null) ?? null,
     optionsChanged: false,
     messages: [],
     usedListing: false,
+    decision: null,
+    waiting,
   }
   const pending = (conversation.pendingToolOutputs as PendingOutput[] | null) ?? []
 
@@ -52,12 +63,16 @@ export async function runAgentTurn(account: Account, conversation: Conversation,
     if (result.text) messages.push({ role: 'agent', text: result.text, source: state.usedListing ? 'listing' : null })
     messages.push(...state.messages)
     if (messages.length === 0) messages.push({ role: 'system', source: 'system', text: templates.notHeard() })
-    return { messages, options: state.optionsChanged ? state.options : null, failed: false }
+    return { messages, options: state.optionsChanged ? state.options : null, decision: state.decision, failed: false }
   } catch (error) {
     console.error('Agent turn failed', error)
     // Drop the chain: a half-finished tool call would break the next turn.
     await saveChain(conversation.id, null, [], state)
-    return { messages: [{ role: 'system', source: 'system', text: templates.error() }], options: null, failed: true }
+    // Whatever the tools already did (options found, a mandate proposed) is still real: say it.
+    if (state.messages.length > 0) {
+      return { messages: state.messages, options: state.optionsChanged ? state.options : null, decision: state.decision, failed: false }
+    }
+    return { messages: [{ role: 'system', source: 'system', text: templates.error() }], options: null, decision: null, failed: true }
   }
 }
 
@@ -78,7 +93,7 @@ async function converse(
   for (let round = 0; round < MAX_ROUNDS; round++) {
     response = await openai().responses.create({
       model: env('LLM_MODEL') ?? 'gpt-6-luna',
-      instructions: instructions(account, state.options),
+      instructions: instructions(account, state.options, state.waiting),
       input,
       tools: TOOLS,
       previous_response_id: previous ?? undefined,

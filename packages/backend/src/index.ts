@@ -8,7 +8,10 @@ import { accountRoutes } from './account/routes'
 import { adminVault } from './admin/vault'
 import { catalogRoutes } from './catalog/routes'
 import { conversationRoutes } from './conversations/routes'
+import { demoRoutes } from './demo/routes'
 import { port } from './env'
+import { mandateRoutes } from './mandate/routes'
+import { orderRoutes } from './orders/routes'
 import { paypalWebhook } from './webhooks/paypal'
 
 // The built frontend. The path is the same from src/ (dev) and dist/ (prod).
@@ -30,6 +33,9 @@ api.route('/', accountRoutes)
 api.route('/webhooks/paypal', paypalWebhook)
 api.route('/', catalogRoutes)
 api.route('/', conversationRoutes)
+api.route('/', mandateRoutes)
+api.route('/', orderRoutes)
+api.route('/', demoRoutes)
 api.all('*', (c) => c.json({ error: 'not_found' }, 404))
 api.onError((error, c) => {
   console.error(error)
