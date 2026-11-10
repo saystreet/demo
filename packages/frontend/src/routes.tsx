@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect } from 'react'
 import { createBrowserRouter, redirect, useNavigate } from 'react-router'
-import { orderQuery, ordersQuery, queryClient, useMe } from './api/queries'
+import { orderQuery, ordersQuery, queryClient, useMe, productQuery } from './api/queries'
 import { RouteError } from './components/route-error'
 import { SIGNED_OUT_EVENT } from './lib/api'
 import { useAnnouncer } from './lib/announcer'
@@ -61,7 +61,15 @@ export const router = createBrowserRouter([
           // One route for a new chat and an open one: the first message gives a new chat its id
           // without remounting the page, so focus stays on Talk.
           { path: '/chat/:id?', lazy: page(() => import('./pages/chat')) },
-          { path: '/products/:id', lazy: page(() => import('./pages/product')) },
+          {
+            path: '/products/:id',
+            loader: ({ params, request }) => {
+              const store = new URL(request.url).searchParams.get('store')
+              if (params.id) void queryClient.prefetchQuery(productQuery(params.id, store))
+              return null
+            },
+            lazy: page(() => import('./pages/product')),
+          },
           // Start the data request together with the page's code, not after it (never blocking: the
           // page shows its own loading and error states).
           {

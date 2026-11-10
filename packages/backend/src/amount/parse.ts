@@ -11,6 +11,16 @@ export type Intent =
 const CANCEL = new Set(['cancel', 'cancel it', 'no', "don't", 'dont', 'never mind', 'nevermind', 'stop'])
 const REPEAT = new Set(['repeat', 'say that again', 'again', 'repeat that'])
 
+const MORE = new Set([
+  'more', 'more options', 'show more', 'show me more', 'more please', 'other options', 'show other options',
+  'anything else', 'something else', 'what else', 'next', 'next options', 'other ones', 'different ones', 'next three',
+])
+
+// "More" after options: the next three from the same search.
+export function isMoreRequest(transcript: string): boolean {
+  return MORE.has(normalize(transcript))
+}
+
 const AFFIRM = new Set(['yes', 'yeah', 'yep', 'yup', 'sure', 'ok', 'okay', 'confirm', 'do it', 'buy it', 'go ahead', 'yes please', 'that one'])
 
 // "Yes" while a payment waits: not enough to pay, the person must say the amount.

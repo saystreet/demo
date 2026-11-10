@@ -56,11 +56,9 @@ mandateRoutes.post('/products/buy', requireAccount, async (c) => {
   const body = await jsonBody<{ product_id?: unknown; merchant_domain?: unknown; title?: unknown; conversation_id?: unknown }>(c)
   if (typeof body.product_id !== 'string' || !body.product_id) return c.json<ApiError>({ error: 'missing_product' }, 400)
 
-  const conversation =
-    typeof body.conversation_id === 'string'
-      ? await findConversation(account.id, body.conversation_id)
-      : await createConversation(account.id, typeof body.title === 'string' && body.title ? body.title : 'Buy from product page')
-  if (!conversation) return c.json<ApiError>({ error: 'not_found' }, 404)
+  // The chat the page came from; if it's gone (deleted, an old link), a new one, so Buy still works.
+  const found = typeof body.conversation_id === 'string' ? await findConversation(account.id, body.conversation_id) : null
+  const conversation = found ?? (await createConversation(account.id, typeof body.title === 'string' && body.title ? body.title : 'Buy from product page'))
 
   const productId = body.product_id
   const result = await withChatLock(conversation.id, async () => {

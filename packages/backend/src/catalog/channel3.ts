@@ -15,7 +15,11 @@ export type C3Offer = {
   price: C3Price
   availability: string // "InStock" | "OutOfStock"
   condition: string | null // "new" | "used" | "refurbished" | null
+  dimensions?: C3Dimensions | null
 }
+
+export type C3Measure = { number: number; unit: string } | null
+export type C3Dimensions = { length: C3Measure; width: C3Measure; height: C3Measure; weight: C3Measure }
 
 export type C3Image = {
   url: string
@@ -34,6 +38,8 @@ export type C3Product = {
   key_features?: string[] | null
   structured_attributes?: Record<string, string[]> | null
   ratings?: { value: number; count: number } | null
+  // The variant this listing is ("256 GB", "Black"), when the store says.
+  variants?: { selected?: { name: string; label: string }[] | null } | null
   offers: C3Offer[]
 }
 

@@ -167,6 +167,16 @@ await step('cancel', async () => {
   expect(r.mandate?.status === 'cancelled', spoken(r))
 })
 
+await step('"more" gives the next options, none repeated', async () => {
+  chat = undefined
+  const first = await say('Coffee grinder')
+  expect(first.options?.length, `no options: ${spoken(first)}`)
+  const more = await say('more')
+  const seen = new Set(first.options.map((o) => o.product_id))
+  expect(more.options?.length && more.options.every((o) => !seen.has(o.product_id)), spoken(more))
+  return `${more.options.length} more`
+})
+
 await step('return by voice asks first, then "return it" returns', async () => {
   chat = undefined
   const asked = await say('Return my French press')

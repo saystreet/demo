@@ -238,12 +238,16 @@ export function useDeleteConversation() {
 
 // ---- Catalog and orders ----------------------------------------------------
 
+export const productQuery = (id: string, store: string | null) => ({
+  queryKey: keys.product(id, store),
+  queryFn: () => api<ProductView>(`/products/${encodeURIComponent(id)}${store ? `?store=${encodeURIComponent(store)}` : ''}`),
+  staleTime: 5 * 60_000,
+  // A catalog outage retries once, not twice: each try can take 8 s.
+  retry: (count: number, error: Error) => !(error instanceof ApiError && error.status < 500) && count < 1,
+})
+
 export function useProduct(id: string, store: string | null) {
-  return useQuery({
-    queryKey: keys.product(id, store),
-    queryFn: () => api<ProductView>(`/products/${encodeURIComponent(id)}${store ? `?store=${encodeURIComponent(store)}` : ''}`),
-    staleTime: 5 * 60_000,
-  })
+  return useQuery(productQuery(id, store))
 }
 
 // A payment or refund still settling at PayPal is finished by a webhook: check back every 5 s

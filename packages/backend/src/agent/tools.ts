@@ -30,6 +30,13 @@ export const TOOLS: FunctionTool[] = [
   },
   {
     type: 'function',
+    name: 'more_options',
+    description: 'The next three options from the last search, when the person asks for more or other options. The system reads them aloud.',
+    strict: true,
+    parameters: { type: 'object', properties: {}, required: [], additionalProperties: false },
+  },
+  {
+    type: 'function',
     name: 'lookup_link',
     description: 'Find the product behind a link the person pasted from a store. It becomes option one; the system reads it aloud.',
     strict: true,
@@ -138,6 +145,8 @@ export async function runTool(name: string, rawArgs: string, state: ToolState): 
   switch (name) {
     case 'search_products':
       return searchProducts(args, state)
+    case 'more_options':
+      return moreOptionsTool(state)
     case 'lookup_link':
       return lookupLinkTool(args, state)
     case 'get_product':
@@ -162,7 +171,9 @@ async function searchProducts(args: Record<string, unknown>, state: ToolState): 
   const store = typeof args.store === 'string' && args.store.trim() ? args.store.trim() : null
 
   try {
-    const result = await searchOptions({ query, budgetCents: budget, store })
+    const limitCents = state.account.perPurchaseLimitCents
+    const result = await searchOptions({ query, budgetCents: budget, store, limitCents })
+    rememberSearch(state.conversationId, { query, budgetCents: budget, store, shown: result.options.map((o) => o.product_id) })
     state.options = result.options
     state.optionsChanged = true
     state.title ??= searchTitle(query, budget, result.store?.name ?? null)
@@ -170,7 +181,7 @@ async function searchProducts(args: Record<string, unknown>, state: ToolState): 
     state.messages.push({
       role: 'system',
       source: 'system',
-      text: intro + templates.options(result.options, result.store?.name ?? null),
+      text: intro + templates.options(result.options, result.store?.name ?? null, { limitCents, more: result.more }),
       attachment: result.options.length ? { kind: 'options', options: result.options } : null,
     })
     return {
@@ -186,6 +197,47 @@ async function searchProducts(args: Record<string, unknown>, state: ToolState): 
       }),
       terminal: true,
     }
+  } catch (error) {
+    if (!(error instanceof CatalogUnavailable)) throw error
+    state.messages.push({ role: 'system', source: 'system', text: templates.catalogDown() })
+    return { output: JSON.stringify({ error: 'CATALOG_UNAVAILABLE' }), terminal: true }
+  }
+}
+
+// ---- More options --------------------------------------------------------
+
+// The last search in each chat, so "more" gives the next three without a new catalog search (the
+// results are cached). Kept in memory: after a restart "more" asks what to look for again.
+type LastSearch = { query: string; budgetCents: number | null; store: string | null; shown: string[]; at: number }
+const lastSearches = new Map<string, LastSearch>()
+
+function rememberSearch(conversationId: string, search: Omit<LastSearch, 'at'>) {
+  const now = Date.now()
+  for (const [id, s] of lastSearches) if (now - s.at > 24 * 60 * 60 * 1000) lastSearches.delete(id)
+  lastSearches.set(conversationId, { ...search, at: now })
+}
+
+// "More": the next options from the chat's last search, said and shown like the first ones.
+// Also used by the turn route for a plain "more", without the model.
+export async function nextOptions(account: Account, conversationId: string): Promise<{ text: string; options: OptionCard[] | null }> {
+  const last = lastSearches.get(conversationId)
+  if (!last) return { text: templates.moreNeedsSearch(), options: null }
+  const limitCents = account.perPurchaseLimitCents
+  const result = await searchOptions({ query: last.query, budgetCents: last.budgetCents, store: last.store, limitCents, skip: last.shown })
+  if (result.options.length === 0) return { text: templates.noMoreOptions(), options: null }
+  rememberSearch(conversationId, { ...last, shown: [...last.shown, ...result.options.map((o) => o.product_id)] })
+  return { text: templates.options(result.options, result.store?.name ?? null, { limitCents, more: result.more, again: true }), options: result.options }
+}
+
+async function moreOptionsTool(state: ToolState): Promise<ToolResult> {
+  try {
+    const next = await nextOptions(state.account, state.conversationId)
+    if (next.options) {
+      state.options = next.options
+      state.optionsChanged = true
+    }
+    state.messages.push({ role: 'system', source: 'system', text: next.text, attachment: next.options ? { kind: 'options', options: next.options } : null })
+    return { output: JSON.stringify({ options: next.options?.map((o) => ({ n: o.n, title: o.title, merchant: o.merchant })) ?? [] }), terminal: true }
   } catch (error) {
     if (!(error instanceof CatalogUnavailable)) throw error
     state.messages.push({ role: 'system', source: 'system', text: templates.catalogDown() })
@@ -360,7 +412,8 @@ async function lookupLinkTool(args: Record<string, unknown>, state: ToolState): 
 
 // "Whistling kettle under $40", "Coffee grinder at Target": the search as a person would name it.
 function searchTitle(query: string, budgetCents: number | null, store: string | null): string {
-  const what = query.charAt(0).toUpperCase() + query.slice(1)
+  // Brand names keep their own case: "iPhone", not "IPhone".
+  const what = /^[a-z][A-Z]/.test(query) ? query : query.charAt(0).toUpperCase() + query.slice(1)
   const under = budgetCents === null ? '' : ` under $${budgetCents % 100 === 0 ? budgetCents / 100 : (budgetCents / 100).toFixed(2)}`
   return `${what}${under}${store ? ` at ${store}` : ''}`
 }

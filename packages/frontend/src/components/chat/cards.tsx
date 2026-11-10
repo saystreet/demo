@@ -8,20 +8,28 @@ import { Button } from '../ui/button'
 
 // Cards under SayStreet's messages (spec 16.4): options, the payment ledger, orders.
 
-type OptionsProps = { options: OptionCard[]; conversationId: string | null; busy: boolean; onChoose: (n: number) => void }
+type OptionsProps = {
+  options: OptionCard[]
+  conversationId: string | null
+  busy: boolean
+  onChoose: (n: number) => void
+  onMore: (() => void) | null // the latest options, when the search has more: "More options"
+}
 
 // Choosing works by voice ("two") and with a button, so nobody has to guess it.
-export function OptionsCard({ options, conversationId, busy, onChoose }: OptionsProps) {
+export function OptionsCard({ options, conversationId, busy, onChoose, onMore }: OptionsProps) {
+  const allOver = options.every((o) => o.over_limit)
   return (
     <>
     <ol className="mt-4 divide-y divide-line border-y border-line">
       {options.map((option) => {
         const rating = ratingWords(option.rating, option.rating_count)
-        const href = `/products/${encodeURIComponent(option.product_id)}?store=${encodeURIComponent(option.merchant_domain)}`
+        const href = `/products/${encodeURIComponent(option.product_id)}?store=${encodeURIComponent(option.merchant_domain)}&n=${option.n}`
         return (
           <li key={`${option.n}-${option.product_id}`} className="grid grid-cols-[4.5rem_1fr] gap-4 py-4 sm:grid-cols-[5.5rem_1fr_auto]">
             {option.image_url ? (
-              <ProductImage src={option.image_url} alt={option.image_alt ?? option.title} size={88} className="p-1" />
+              // No real photo description: decorative, so the title isn't read twice in a row.
+              <ProductImage src={option.image_url} alt={option.image_alt ?? ''} size={88} className="p-1" />
             ) : (
               <span aria-hidden="true" className="aspect-square w-full rounded-(--radius-control) bg-surface-2" />
             )}
@@ -32,9 +40,11 @@ export function OptionsCard({ options, conversationId, busy, onChoose }: Options
                 {option.title}
               </p>
               <p className="text-ink-muted">
+                {option.detail && <span className="font-semibold text-ink">{option.detail}, </span>}
                 {option.merchant}
                 {rating && <span>, {rating}</span>}
               </p>
+              {option.over_limit && !allOver && <p className="font-semibold text-bad">Over your limit per purchase</p>}
               <p className="data mt-1 text-lg sm:hidden">
                 {formatUSD(option.total_cents)} <span className="font-sans text-base text-ink-muted">with shipping</span>
               </p>
@@ -44,6 +54,7 @@ export function OptionsCard({ options, conversationId, busy, onChoose }: Options
                 </Button>
                 <Link
                   to={`${href}${conversationId ? `&c=${conversationId}` : ''}`}
+                  state={{ title: option.title }}
                   className="inline-flex min-h-12 items-center font-semibold underline underline-offset-4 hover:text-accent"
                 >
                   Details<span className="sr-only"> for option {option.n}, {option.title}</span>
@@ -58,7 +69,22 @@ export function OptionsCard({ options, conversationId, busy, onChoose }: Options
         )
       })}
     </ol>
-    <p className="mt-3 text-ink-muted">Say a number to choose, or press Buy. You'll hear the total before anything is paid.</p>
+    {allOver ? (
+      <p className="mt-3 font-semibold text-bad">
+        All over your limit per purchase.{' '}
+        <Link to="/settings" className="text-ink underline underline-offset-4 hover:text-accent">
+          Change it in Settings
+        </Link>{' '}
+        to buy one.
+      </p>
+    ) : (
+      <p className="mt-3 text-ink-muted">Say a number to choose, or press Buy. You'll hear the total before anything is paid.</p>
+    )}
+    {onMore && (
+      <Button variant="secondary" className="mt-3" aria-disabled={busy || undefined} onClick={() => !busy && onMore()}>
+        More options
+      </Button>
+    )}
     </>
   )
 }

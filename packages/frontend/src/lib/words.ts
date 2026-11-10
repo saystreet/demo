@@ -91,7 +91,7 @@ export const REJECT_WORDS: Record<RejectReason, string> = {
 export function ratingWords(rating: number | null, count: number | null): string | null {
   if (rating === null) return null
   const value = rating.toFixed(1)
-  return count ? `${value} stars, ${count.toLocaleString('en-US')} ratings` : `${value} stars`
+  return count ? `${value} stars, ${count.toLocaleString('en-US')} ${count === 1 ? 'rating' : 'ratings'}` : `${value} stars`
 }
 
 // A payment-log line in plain words. The server writes one technical line per money decision

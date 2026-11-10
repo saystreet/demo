@@ -5,20 +5,34 @@ import { formatUSD, type OptionCard, RETURN_DAYS } from '@saystreet/shared'
 
 const COUNT_WORDS = ['One', 'Two', 'Three']
 
+// Limits are whole dollars: "$250", not "$250.00".
+const wholeUSD = (cents: number) => (cents % 100 === 0 ? `$${(cents / 100).toLocaleString('en-US')}` : formatUSD(cents))
+
 export const templates = {
   // The frontend shows this in an empty chat; it is not stored as a message.
   welcome: () => "Hi, I'm SayStreet. What are you shopping for today?",
 
-  options: (options: OptionCard[], store: string | null) => {
-    if (options.length === 0) return templates.noOptions()
+  // Each option says its store (two listings can share a title), what sets it apart when they do,
+  // and whether it's over the person's limit, so nobody chooses something Buy would refuse.
+  options: (options: OptionCard[], store: string | null, extra: { limitCents?: number | null; more?: boolean; again?: boolean } = {}) => {
+    if (options.length === 0) return extra.again ? templates.noMoreOptions() : templates.noOptions()
     const count = options.length === 1 ? 'One option' : `${COUNT_WORDS[options.length - 1]} options`
-    const intro = store ? `${count} from ${store}.` : `${count}.`
+    const counted = extra.again ? (options.length === 1 ? 'One more option' : `${COUNT_WORDS[options.length - 1]} more options`) : count
+    const intro = store ? `${counted} from ${store}.` : `${counted}.`
+    const allOver = extra.limitCents != null && options.every((o) => o.over_limit)
     const items = options.map((option, i) => {
+      const detail = option.detail ? `, ${option.detail}${store ? '' : ','}` : ''
+      const from = store ? '' : ` from ${option.merchant}`
       const rating = option.rating === null ? '' : `, ${option.rating.toFixed(1)} stars`
-      return `${COUNT_WORDS[i]}: ${option.title}, ${formatUSD(option.total_cents)} with shipping${rating}.`
+      const over = option.over_limit && !allOver ? ', over your limit' : ''
+      return `${COUNT_WORDS[i]}: ${option.title}${detail}${from}, ${formatUSD(option.total_cents)} with shipping${rating}${over}.`
     })
-    return [intro, ...items, 'Say a number to choose.'].join(' ')
+    const limit = allOver ? [`All over your ${wholeUSD(extra.limitCents!)} limit per purchase. Change it in Settings to buy one.`] : []
+    const close = extra.more ? 'Say a number to choose, or "more" for other options.' : 'Say a number to choose.'
+    return [intro, ...items, ...limit, close].join(' ')
   },
+  noMoreOptions: () => "That's all I found. Try different words or a higher budget.",
+  moreNeedsSearch: () => 'Tell me what you are looking for first.',
 
   linkFound: (option: OptionCard) =>
     `Found it: ${option.title} from ${option.merchant}, ${formatUSD(option.total_cents)} with shipping. Say "buy it" for the total, or ask me about it.`,
@@ -51,6 +65,7 @@ export const templates = {
   outOfStock: () => "It's out of stock now. Nothing was paid.",
   priceUnavailable: () => "I couldn't check the current price. Nothing was paid. Try again in a moment.",
   unknownProduct: () => 'Which one? Say one, two or three.',
+  productGone: () => "That product isn't in the store's catalog anymore. Nothing was paid. Ask me for something similar.",
   paid: (totalCents: number, weekday: string) => `${formatUSD(totalCents)} paid. PayPal confirmed. It arrives ${weekday}.`,
   pending: () => "PayPal is still processing. I'll tell you when it's done. Don't pay again.",
   failed: () => 'PayPal declined the payment. Nothing was paid.',

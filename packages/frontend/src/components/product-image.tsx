@@ -22,7 +22,8 @@ export function ProductImage({ src, alt, size, lazy = true, className }: Props) 
       height={size}
       loading={lazy ? 'lazy' : undefined}
       decoding="async"
-      fetchPriority={lazy ? 'low' : undefined}
+      // Not lazy means it's the page's main picture: fetch it first.
+      fetchPriority={lazy ? 'low' : 'high'}
       // Switch the mat once the photo is decoded, not just downloaded: a 2000 px image paints late.
       onLoad={(event) => {
         void event.currentTarget

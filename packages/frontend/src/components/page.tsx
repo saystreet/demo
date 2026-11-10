@@ -5,15 +5,24 @@ import { BrailleCell } from './braille'
 // Every page has one h1 and a tab title "<Page> · SayStreet" (spec 16.1). The shell moves
 // focus to the h1 after navigation, so VoiceOver reads where the person landed.
 
+// Long catalog titles are cut for the tab strip; the page's h1 keeps the whole name.
 export function usePageTitle(title: string) {
   useEffect(() => {
-    document.title = title ? `${title} · SayStreet` : 'SayStreet'
+    const short = title.length > 60 ? `${title.slice(0, 57).trimEnd()}…` : title
+    document.title = short ? `${short} · SayStreet` : 'SayStreet'
   }, [title])
 }
 
-export function PageTitle({ children, className }: { children: ReactNode; className?: string }) {
+// `plain`: the text face in normal case, for names that aren't ours (a 120-character product title
+// in the condensed capitals face is hard to read at any zoom). A size passed in className replaces
+// the default one instead of fighting it (cn doesn't merge classes).
+export function PageTitle({ children, className, plain = false }: { children: ReactNode; className?: string; plain?: boolean }) {
+  const sized = className?.split(/\s+/).some((c) => /^(sm:)?text-(\d?xl|lg|base)$/.test(c))
   return (
-    <h1 tabIndex={-1} className={cn('title text-4xl sm:text-5xl', className)}>
+    <h1
+      tabIndex={-1}
+      className={cn(plain ? 'font-bold leading-tight [overflow-wrap:anywhere]' : 'title', !sized && (plain ? 'text-3xl sm:text-4xl' : 'text-4xl sm:text-5xl'), className)}
+    >
       {children}
     </h1>
   )

@@ -9,8 +9,9 @@ import {
   type TurnResponse,
 } from '@saystreet/shared'
 import { Hono } from 'hono'
+import { nextOptions } from '../agent/tools'
 import { runAgentTurn } from '../agent/turn'
-import { isAffirmation, parseIntent } from '../amount/parse'
+import { isAffirmation, isMoreRequest, parseIntent } from '../amount/parse'
 import { type AuthEnv, requireAccount } from '../auth'
 import { CatalogUnavailable, getProductView, ProductNotFound } from '../catalog/service'
 import { db } from '../db'
@@ -117,6 +118,19 @@ conversationRoutes.post('/turn', requireAccount, async (c) => {
           recent.status === 'paid' ? templates.alreadyPaid() : recent.status === 'paying' || recent.status === 'pending' ? templates.pending() : templates.nothingToPay()
         return c.json<TurnResponse>(await respond(conversation.id, { already, messages: [{ role: 'system', source: 'system', text }], sound: 'reply' }))
       }
+    }
+    // "More": the next options from this chat's last search, in plain code (no model, no credit).
+    if (!waiting && isMoreRequest(text)) {
+      const next = await nextOptions(account, conversation.id)
+      if (next.options) await db().conversation.update({ where: { id: conversation.id }, data: { options: next.options as unknown as Prisma.InputJsonValue } })
+      return c.json<TurnResponse>(
+        await respond(conversation.id, {
+          already,
+          messages: [{ role: 'system', source: 'system', text: next.text, attachment: next.options ? { kind: 'options', options: next.options } : null }],
+          options: next.options,
+          sound: next.options ? 'options' : 'reply',
+        }),
+      )
     }
     if (intent.type === 'repeat') {
       const last = await lastSpoken(conversation.id)

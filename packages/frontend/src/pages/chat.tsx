@@ -336,6 +336,12 @@ export default function ChatPage() {
     },
     [phase, focusTalk, send],
   )
+  // "More options" under the latest list: the same as saying "more".
+  const onMore = useCallback(() => {
+    if (phase !== 'idle') return
+    focusTalk()
+    void send('More options', 'text')
+  }, [phase, focusTalk, send])
 
 
   // A suggestion: these buttons disappear once the chat starts, so focus goes to Talk, not the page.
@@ -350,6 +356,7 @@ export default function ChatPage() {
 
   const messages: Message[] = chat.data?.messages ?? []
   const liveMandate = chat.data?.mandate ?? null
+  const latestOptionsId = messages.findLast((m) => m.attachment?.kind === 'options')?.id ?? null
   const options = chat.data?.options ?? null
   const pendingText = current.text
 
@@ -416,6 +423,7 @@ export default function ChatPage() {
               onExpired={onExpired}
               onExtend={onExtend}
               onChoose={onChoose}
+              onMore={message.id === latestOptionsId ? onMore : null}
             />
           ))}
           {pendingText && (
@@ -538,17 +546,18 @@ type ItemProps = {
   onExpired: (mandate: MandateView) => void
   onExtend: (mandate: MandateView) => void
   onChoose: (n: number) => void
+  onMore: (() => void) | null // set on the latest options only
 }
 
 // The spoken list of options ("Three options. One: …, $31.09 with shipping. Two: …") is for the
 // ear; on screen the card below shows the same list, so the text keeps only its first sentence.
 // A screen reader user swiping through the chat then hears the options once, not twice.
 function optionsIntro(text: string) {
-  const match = /^((?:One|Two|Three) options?(?: from [^.]+)?\.)\s/.exec(text)
+  const match = /^((?:One|Two|Three)(?: more)? options?(?: from [^.]+)?\.)\s/.exec(text)
   return match ? match[1] : text
 }
 
-function MessageItem({ message, conversationId, liveMandate, busy, onPay, onCancel, onExpiring, onExpired, onExtend, onChoose }: ItemProps) {
+function MessageItem({ message, conversationId, liveMandate, busy, onPay, onCancel, onExpiring, onExpired, onExtend, onChoose, onMore }: ItemProps) {
   const mine = message.role === 'user'
   const attachment = message.attachment
   const text = attachment?.kind === 'options' ? optionsIntro(message.text) : message.text
@@ -566,7 +575,16 @@ function MessageItem({ message, conversationId, liveMandate, busy, onPay, onCanc
         )}
       </p>
       <p className={cn('mt-1', mine ? 'text-xl' : 'text-lg leading-relaxed')}>{text}</p>
-      {attachment?.kind === 'options' && <OptionsCard options={attachment.options} conversationId={conversationId} busy={busy} onChoose={onChoose} />}
+      {attachment?.kind === 'options' && (
+        <OptionsCard
+          options={attachment.options}
+          conversationId={conversationId}
+          busy={busy}
+          onChoose={onChoose}
+          // The server offers "more" in the spoken list when the search has further options.
+          onMore={onMore && message.text.includes('"more"') ? onMore : null}
+        />
+      )}
       {mandate && (
         <MandateCard
           mandate={mandate}

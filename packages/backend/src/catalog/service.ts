@@ -1,9 +1,10 @@
 import type { OptionCard, ProductView } from '@saystreet/shared'
 import { shippingCents } from '../env'
 import { cached, DAY, HOUR } from './cache'
-import { type C3Offer, type C3Product, type C3SearchResponse, Channel3Error, channel3 } from './channel3'
+import { type C3Dimensions, type C3Measure, type C3Offer, type C3Product, type C3SearchResponse, Channel3Error, channel3 } from './channel3'
 import { fixtureProduct, fixtureSearch } from './fixtures'
-import { attributeName, mainImage, merchantFromDomain, normalizeDomain, offerPriceCents, pickOffer } from './offers'
+import { estimatedDelivery } from '../orders/service'
+import { cleanAttributes, mainImage, merchantFromDomain, normalizeDomain, offerPriceCents, pickOffer, sentenceCase, usefulAlt } from './offers'
 
 // Catalog: search, product detail and store names on top of Channel3, with a Postgres
 // cache and a fallback to recorded fixtures when Channel3 fails.
@@ -13,10 +14,17 @@ export class ProductNotFound extends Error {}
 
 export type Store = { name: string; domain: string }
 
-export type SearchInput = { query: string; budgetCents?: number | null; store?: string | null }
+export type SearchInput = {
+  query: string
+  budgetCents?: number | null
+  store?: string | null
+  limitCents?: number | null // the person's limit per purchase: options over it are marked
+  skip?: string[] // product ids already offered ("more" gives the next ones)
+}
 
 export type SearchResult = {
   options: OptionCard[] // at most 3, total_cents within the budget
+  more: boolean // further options are left for "more"
   store: Store | null // the store the search was limited to
   store_unknown: boolean // the person named a store Channel3 doesn't know; searched everywhere instead
   source: 'live' | 'fixtures'
@@ -35,24 +43,32 @@ export async function searchOptions(input: SearchInput): Promise<SearchResult> {
   // Ask Channel3 only for items that can fit the budget once shipping is added.
   const maxPrice = budget === null ? null : Math.floor((budget - shipping) / 100)
   if (maxPrice !== null && maxPrice <= 0) {
-    return { options: [], store, store_unknown: storeUnknown, source: 'live' }
+    return { options: [], more: false, store, store_unknown: storeUnknown, source: 'live' }
   }
 
   const { response, source } = await searchWithFallback(query, maxPrice, store?.domain ?? null)
 
-  const picked: { product: C3Product; offer: C3Offer; item: number }[] = []
+  const skip = new Set(input.skip ?? [])
+  const limit = input.limitCents ?? null
+  const candidates: { product: C3Product; offer: C3Offer; item: number }[] = []
   for (const product of response.products) {
+    if (skip.has(product.id)) continue
     const offer = pickOffer(product, store?.domain)
     const item = offer && offerPriceCents(offer)
     if (!offer || !item) continue
     if (budget !== null && item + shipping > budget) continue
-    picked.push({ product, offer, item })
-    if (picked.length === MAX_OPTIONS) break
+    candidates.push({ product, offer, item })
   }
+  // The catalog's order is by relevance and stays: putting what fits the limit first would answer
+  // "iPhone" with phone cases. Options over the limit are marked and said instead.
+  const ranked = candidates
+  const picked = ranked.slice(0, MAX_OPTIONS)
 
   const names = await merchantNames(picked.map((p) => p.offer.domain))
   const options = picked.map(({ product, offer, item }, i): OptionCard => {
     const image = mainImage(product)
+    // Same title as another option ("iPhone 16" twice): say what sets it apart.
+    const twin = picked.some((p) => p.product !== product && p.product.title.trim().toLowerCase() === product.title.trim().toLowerCase())
     return {
       n: (i + 1) as OptionCard['n'],
       product_id: product.id,
@@ -62,16 +78,24 @@ export async function searchOptions(input: SearchInput): Promise<SearchResult> {
       merchant: names.get(normalizeDomain(offer.domain)) ?? merchantFromDomain(offer.domain),
       merchant_domain: normalizeDomain(offer.domain),
       image_url: image ? (image.cleaned_url ?? image.url) : null,
-      image_alt: image?.alt_text ?? null,
+      image_alt: usefulAlt(image?.alt_text, product.title),
       item_cents: item,
       shipping_cents: shipping,
       total_cents: item + shipping,
       rating: product.ratings?.value ?? null,
       rating_count: product.ratings?.count ?? null,
+      detail: twin ? variantLabel(product) : null,
+      over_limit: limit !== null && item + shipping > limit,
     }
   })
 
-  return { options, store, store_unknown: storeUnknown, source }
+  return { options, more: ranked.length > MAX_OPTIONS, store, store_unknown: storeUnknown, source }
+}
+
+// "256 GB, Black" from the listing's selected variant, if it says.
+function variantLabel(product: C3Product): string | null {
+  const labels = (product.variants?.selected ?? []).map((v) => v.label.trim()).filter(Boolean)
+  return labels.length ? labels.join(', ') : null
 }
 
 async function searchWithFallback(query: string, maxPrice: number | null, storeDomain: string | null) {
@@ -97,12 +121,17 @@ async function searchWithFallback(query: string, maxPrice: number | null, storeD
   }
 }
 
-// Product page data. `storeDomain` picks that store's offer, as on the option the person chose.
+// Product page data. `storeDomain` is the store of the option the person chose: the page shows
+// that store's offer, in stock or not, never quietly another store's (the chat would then answer
+// for a different store than the page). Without a store, or if that store doesn't sell it at
+// all, the cheapest sellable offer.
 export async function getProductView(productId: string, storeDomain?: string | null): Promise<ProductView> {
   const product = await getProduct(productId)
-  const sellable = pickOffer(product, storeDomain ?? undefined) ?? pickOffer(product)
-  // Nothing sellable: still show the product, priced from any USD offer, as out of stock.
-  const offer = sellable ?? product.offers.find((o) => o.price.currency === 'USD' && offerPriceCents(o) !== null)
+  const wanted = storeDomain ? normalizeDomain(storeDomain) : null
+  const atStore = wanted ? product.offers.filter((o) => normalizeDomain(o.domain) === wanted && o.price.currency === 'USD' && offerPriceCents(o) !== null) : []
+  const sellable = wanted && atStore.length ? pickOffer(product, wanted) : pickOffer(product)
+  // Nothing sellable: still show the product, priced from that store's (or any) USD offer, as out of stock.
+  const offer = sellable ?? atStore[0] ?? product.offers.find((o) => o.price.currency === 'USD' && offerPriceCents(o) !== null)
   const item = offer ? offerPriceCents(offer) : null
   if (!offer || !item) throw new ProductNotFound()
 
@@ -110,30 +139,66 @@ export async function getProductView(productId: string, storeDomain?: string | n
   const image = mainImage(product)
   const domain = normalizeDomain(offer.domain)
   const names = await merchantNames([domain])
+  const brand = product.brands?.[0]?.name ?? null
+  // The catalog's brand is sometimes another company's; shown only when the listing names it too.
+  const listing = `${product.title} ${product.description ?? ''}`.toLowerCase()
+  const dims = offer.dimensions ?? product.offers.find((o) => o.dimensions)?.dimensions ?? null
   return {
     product_id: product.id,
     source: 'catalog',
     source_url: null,
     title: product.title,
-    brand: product.brands?.[0]?.name ?? null,
+    brand: brand && listing.includes(brand.toLowerCase()) ? brand : null,
     image_url: image ? (image.cleaned_url ?? image.url) : null,
-    image_alt: image?.alt_text ?? null,
+    image_alt: usefulAlt(image?.alt_text, product.title),
     merchant: names.get(domain) ?? merchantFromDomain(domain),
     merchant_domain: domain,
-    merchant_url: offer.url,
+    merchant_url: httpUrl(offer.url),
     item_cents: item,
     shipping_cents: shipping,
     total_cents: item + shipping,
     in_stock: sellable !== null,
     rating: product.ratings?.value ?? null,
     rating_count: product.ratings?.count ?? null,
-    key_features: product.key_features ?? [],
-    materials: product.materials ?? [],
-    attributes: Object.entries(product.structured_attributes ?? {}).map(([handle, values]) => ({
-      name: attributeName(handle),
-      value: values.join(', '),
-    })),
+    key_features: sentenceCaseFirst(product.key_features),
+    materials: sentenceCase(product.materials),
+    attributes: cleanAttributes(product.structured_attributes),
     description: product.description ?? '',
+    size: sizeWords(dims),
+    weight: measure(dims?.weight ?? null),
+    arrives_on: estimatedDelivery(new Date()).toISOString().slice(0, 10),
+  }
+}
+
+// "146.7 × 71.5 × 7.7 mm", largest first. Stores mix up which side is "height" (a phone 7.7 mm
+// high), so the sides aren't named, only measured.
+function sizeWords(dims: C3Dimensions | null): string | null {
+  if (!dims) return null
+  const sides = [dims.length, dims.width, dims.height].filter((m): m is NonNullable<C3Measure> => !!m && m.number > 0)
+  if (sides.length === 0) return null
+  const unit = sides[0]!.unit
+  if (sides.some((m) => m.unit !== unit)) return sides.map((m) => measure(m)).join(' × ')
+  const numbers = sides.map((m) => Math.round(m.number * 10) / 10).sort((a, b) => b - a)
+  return `${numbers.join(' × ')} ${unit}`
+}
+
+function measure(m: C3Measure): string | null {
+  if (!m || !(m.number > 0)) return null
+  return `${Math.round(m.number * 10) / 10} ${m.unit}`
+}
+
+// Key features keep their own words; only the first letter is raised ("not induction" → "Not induction").
+function sentenceCaseFirst(items: string[] | null | undefined): string[] {
+  return [...new Set((items ?? []).map((t) => t.trim()).filter(Boolean))].map((t) => t.charAt(0).toUpperCase() + t.slice(1))
+}
+
+// Only web links from a third-party catalog become an href.
+function httpUrl(raw: string | null | undefined): string | null {
+  try {
+    const url = new URL(raw ?? '')
+    return url.protocol === 'https:' || url.protocol === 'http:' ? url.toString() : null
+  } catch {
+    return null
   }
 }
 

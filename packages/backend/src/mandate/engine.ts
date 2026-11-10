@@ -52,7 +52,7 @@ export async function proposeMandate(input: ProposeInput): Promise<Decision> {
     if (error instanceof CatalogUnavailable) return refusalWithoutMandate(templates.priceUnavailable())
     throw error
   }
-  if (!product) return refusalWithoutMandate(templates.unknownProduct(), 'reply')
+  if (!product) return refusalWithoutMandate(templates.productGone())
 
   const offer = pickOffer(product, input.merchantDomain ?? undefined)
   const storePrice = offer && offerPriceCents(offer)

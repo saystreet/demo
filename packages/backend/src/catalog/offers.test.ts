@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { C3Offer, C3Product } from './channel3'
 import { fixtureSearch } from './fixtures'
-import { attributeName, merchantFromDomain, normalizeDomain, offerPriceCents, pickOffer } from './offers'
+import { attributeName, cleanAttributes, merchantFromDomain, normalizeDomain, offerPriceCents, pickOffer, sentenceCase, usefulAlt } from './offers'
 
 const offer = (domain: string, price: number, extra: Partial<C3Offer> = {}): C3Offer => ({
   url: `https://${domain}/p`,
@@ -58,6 +58,8 @@ describe('names', () => {
   it('makes a fallback store name from a domain', () => {
     expect(merchantFromDomain('target.com')).toBe('Target')
     expect(merchantFromDomain('www.bestbuy.com')).toBe('Bestbuy')
+    expect(merchantFromDomain('buy.gazelle.com')).toBe('Gazelle')
+    expect(merchantFromDomain('shop.lego.com')).toBe('Lego')
   })
   it('makes attribute names readable', () => {
     expect(attributeName('cookware-bakeware-material')).toBe('Cookware bakeware material')
@@ -81,5 +83,32 @@ describe('fixtureSearch', () => {
   })
   it('returns null when nothing matches', () => {
     expect(fixtureSearch('garden hose', null)).toBeNull()
+  })
+})
+
+describe('product page details', () => {
+  it('keeps useful attributes under plain names, drops noise and contradictions', () => {
+    const rows = cleanAttributes({
+      pattern: ['Solid'],
+      'power-source': ['Stovetop'],
+      'compatible-stove-top-type': ['Gas', 'Induction'],
+      whistling: ['Whistling', 'Non-whistling'],
+      finish: ['Black', 'Non-black'],
+      'cookware-bakeware-features': ['Lid'],
+      'electric-kettle-features': ['Auto shut-off', 'Lid'],
+    })
+    expect(rows).toEqual([
+      { name: 'Works on', value: 'Gas, Induction' },
+      { name: 'Features', value: 'Auto shut-off, Lid' },
+    ])
+  })
+  it('sentence case without repeats', () => {
+    expect(sentenceCase(['stainless steel', 'Stainless Steel', 'GLASS'])).toEqual(['Stainless steel', 'Glass'])
+  })
+  it('a photo description only when it says something', () => {
+    expect(usefulAlt('EUROSTAR EK40 Kettle', 'Eurostar EK40 kettle')).toBeNull()
+    expect(usefulAlt('product image', 'Kettle')).toBeNull()
+    expect(usefulAlt(null, 'Kettle')).toBeNull()
+    expect(usefulAlt('Silver kettle with a black handle', 'Kettle')).toBe('Silver kettle with a black handle')
   })
 })
