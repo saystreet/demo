@@ -1,0 +1,20 @@
+{
+  "name": "@saystreet/backend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsdown",
+    "typecheck": "tsc"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.6",
+    "@saystreet/shared": "workspace:*",
+    "hono": "^4.13.17"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "tsdown": "^0.23.7",
+    "tsx": "^4.23.15"
+  }
+}

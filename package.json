@@ -1,0 +1,19 @@
+{
+  "name": "saystreet",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "packageManager": "pnpm@12.18.0",
+  "engines": {
+    "node": ">=26"
+  },
+  "scripts": {
+    "dev": "pnpm --recursive --parallel --stream dev",
+    "build": "pnpm --recursive build",
+    "start": "node packages/backend/dist/index.js",
+    "typecheck": "pnpm --recursive typecheck"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2"
+  }
+}
