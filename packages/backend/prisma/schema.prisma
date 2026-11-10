@@ -35,7 +35,59 @@ model Account {
   createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz
   lastSeenAt            DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz
 
+  conversations Conversation[]
+
   @@map("accounts")
+}
+
+/// A chat, like in ChatGPT. Deleting only sets deletedAt.
+model Conversation {
+  id        String    @id @db.Uuid
+  accountId String    @map("account_id") @db.Uuid
+  account   Account   @relation(fields: [accountId], references: [id])
+  title     String    @default("New chat")
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @default(now()) @map("updated_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+
+  /// The options the person heard last in this chat (OptionCard[]), "the first one" refers to them.
+  options Json?
+
+  /// Agent memory lives on OpenAI (Responses API): the id of the last response in this chat.
+  lastResponseId     String? @map("last_response_id")
+  /// Tool results not yet sent to the model. After a search the server speaks the options
+  /// itself and skips a second model call; the results go along with the next turn.
+  pendingToolOutputs Json    @default("[]") @map("pending_tool_outputs")
+
+  messages Message[]
+
+  @@index([accountId, updatedAt(sort: Desc)])
+  @@map("conversations")
+}
+
+enum MessageRole {
+  user
+  agent
+  system
+
+  @@map("message_role")
+}
+
+/// What the person sees and hears in a chat. Money phrases are role system (server templates).
+model Message {
+  id             String       @id @db.Uuid
+  conversationId String       @map("conversation_id") @db.Uuid
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  role           MessageRole
+  text           String
+  /// "listing" when the answer comes from the product listing, "system" for server phrases.
+  source         String?
+  /// Card shown with the message, e.g. { kind: "options", options: OptionCard[] }.
+  attachment     Json?
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([conversationId, createdAt])
+  @@map("messages")
 }
 
 /// Every PayPal webhook call that passed the signature check, stored once by PayPal's event id.

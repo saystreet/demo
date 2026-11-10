@@ -18,7 +18,8 @@
     "@prisma/adapter-pg": "7.10.1",
     "@prisma/client": "7.10.1",
     "@saystreet/shared": "workspace:*",
-    "hono": "^4.13.17"
+    "hono": "^4.13.17",
+    "openai": "^7.54.0"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
