@@ -1,5 +1,5 @@
 import type { VoiceMode } from '@saystreet/shared'
-import { ArrowRight, Ear, SpeakerHigh } from '@phosphor-icons/react'
+import { ArrowRight, Headphones, SpeakerHigh } from '@phosphor-icons/react'
 import { useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router'
 import { useCreateAccount } from '../api/queries'
@@ -12,12 +12,12 @@ import { cn } from '../lib/cn'
 // The demo starts here (spec 16.3): no email, no password, one question. The browser can't tell
 // whether VoiceOver is on, so the person says how replies should be read.
 
-const CHOICES: { mode: VoiceMode; label: string; description: string; Icon: typeof Ear }[] = [
+const CHOICES: { mode: VoiceMode; label: string; description: string; Icon: typeof Headphones }[] = [
   {
     mode: 'screen_reader',
     label: 'Start with my screen reader',
     description: 'SayStreet won’t talk over it.',
-    Icon: Ear,
+    Icon: Headphones,
   },
   {
     mode: 'spoken',
@@ -57,12 +57,23 @@ export default function StartPage() {
 
   return (
     <main id="main" className="mx-auto flex min-h-dvh max-w-2xl flex-col px-4 py-6 sm:px-8 sm:py-14">
-      <a href="https://saystreet.app" className="flex min-h-12 items-center self-start">
-        <img src="/brand/lockup-for-dark-bg.svg" alt="SayStreet: about the product on saystreet.app" width="180" height="36" className="h-9 w-auto" />
-      </a>
+      {/* The brand and where the project comes from; the page below is only about the product. */}
+      <div className="flex flex-wrap items-center justify-between gap-x-4">
+        <a href="https://saystreet.app" className="flex min-h-12 items-center">
+          <img src="/brand/lockup-for-dark-bg.svg" alt="SayStreet: about the product on saystreet.app" width="180" height="36" className="h-8 w-auto sm:h-9" />
+        </a>
+        <a
+          href="https://paypalaihackathon.devpost.com/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex min-h-12 items-center text-sm text-ink-muted underline decoration-edge sm:text-base underline-offset-4 hover:text-ink hover:decoration-ink"
+        >
+          <span className="sr-only">Built for the </span>PayPal AI Hackathon<span className="sr-only"> (opens in a new tab)</span>
+        </a>
+      </div>
 
-      {/* One promise, one honest line, one question. What SayStreet is lives on saystreet.app,
-          one tap away on the logo. */}
+      {/* One promise, one line on who it's for and what you get, one question. More about SayStreet
+          lives on saystreet.app, one tap away on the logo. */}
       <div className="mt-10 sm:mt-16">
         <h1 ref={heading} tabIndex={-1} className="title text-5xl text-balance sm:text-6xl">
           <span className="block">Shop by voice.</span>
@@ -71,11 +82,8 @@ export default function StartPage() {
           </span>
         </h1>
         <p className="mt-5 text-lg text-ink-muted sm:text-xl">
-          Built for the{' '}
-          <a href="https://paypalaihackathon.devpost.com/" className="font-semibold whitespace-nowrap text-ink underline hover:text-accent">
-            PayPal AI Hackathon
-          </a>
-          . One&nbsp;tap sets up your own demo: shop real products with a sandbox PayPal wallet.
+          For blind and low-vision people. One&nbsp;tap sets up your own demo: shop real products with a sandbox PayPal
+          wallet.
         </p>
       </div>
 
