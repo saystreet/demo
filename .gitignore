@@ -7,3 +7,4 @@ dist
 *.log
 .idea
 packages/backend/src/generated
+.claude

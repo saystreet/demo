@@ -1,0 +1,147 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/albert-sans';
+@import '@fontsource-variable/big-shoulders-display';
+@import '@fontsource-variable/red-hat-mono';
+
+/* The SayStreet brand, shared with saystreet.app. Text contrast on every surface is 7:1 or more. */
+@theme {
+  --color-ground: #0a1124;
+  --color-surface-1: #0f1830;
+  --color-surface-2: #16213f;
+  --color-surface-3: #1f2d55;
+  --color-line: rgb(255 255 255 / 0.12);
+  --color-edge: rgb(255 255 255 / 0.42);
+  --color-ink: #eef0f6;
+  --color-ink-muted: #b4bdd6; /* 7:1 or more on every surface, hover states included */
+  --color-accent: #ffd166;
+  --color-accent-ink: #0a1124;
+  /* State colours, readable on navy. Always paired with words. */
+  --color-good: #7ee2b0;
+  --color-warn: #ffd166;
+  --color-bad: #ff9a8f;
+
+  --font-display: 'Big Shoulders Display Variable', 'Arial Narrow', sans-serif;
+  --font-sans: 'Albert Sans Variable', system-ui, sans-serif;
+  --font-mono: 'Red Hat Mono Variable', ui-monospace, monospace;
+
+  --radius-control: 0.75rem;
+  --radius-panel: 1.25rem;
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@layer base {
+  html {
+    background: var(--color-ground);
+    color: var(--color-ink);
+    color-scheme: dark;
+    font-family: var(--font-sans);
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+    /* Keyboard focus never lands under the sticky header (phones) or the chat's input bar. */
+    scroll-padding-bottom: var(--composer-h, 0px);
+  }
+  @media (max-width: 63.99rem) {
+    html {
+      scroll-padding-top: 4.5rem;
+    }
+  }
+  body {
+    margin: 0;
+    min-height: 100dvh;
+    line-height: 1.5;
+    font-size: 1.0625rem;
+  }
+  p,
+  li,
+  dd {
+    text-wrap: pretty;
+  }
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+  :focus-visible {
+    outline: 3px solid var(--color-accent);
+    outline-offset: 3px;
+    border-radius: 6px;
+  }
+  /* Headings receive focus on page change; they don't need a ring for it. */
+  [tabindex='-1']:focus {
+    outline: none;
+  }
+  ::selection {
+    background: var(--color-accent);
+    color: var(--color-accent-ink);
+  }
+  input,
+  select,
+  textarea {
+    caret-color: var(--color-accent);
+  }
+  a {
+    text-underline-offset: 0.2em;
+    text-decoration-thickness: 1px;
+  }
+  * {
+    scrollbar-color: var(--color-surface-3) transparent;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer components {
+  /* Page titles: the brand's display face. Everything else stays in the text face. */
+  .title {
+    font-family: var(--font-display);
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: -0.005em;
+    line-height: 0.95;
+  }
+  /* Prices, totals and codes. */
+  .data {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+  .skip-link:not(:focus):not(:focus-within) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+/* The Braille cell from the logo: dots 2, 3 and 4 spell S. In the Talk button they pulse
+   while listening and step while thinking. */
+@keyframes cell-listen {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.82);
+  }
+}
+@keyframes cell-think {
+  0%,
+  60%,
+  100% {
+    opacity: 0.3;
+  }
+  20% {
+    opacity: 1;
+  }
+}
