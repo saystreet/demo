@@ -4,15 +4,17 @@ import { type Account, db } from '../db'
 import { env } from '../env'
 import { sampleOrderEvents, sampleOrders } from '../orders/samples'
 
-// What every new demo account starts with (spec section 4.1), plus four sample orders.
-const DEMO_CUSTOMER = {
-  name: 'Alex Morgan',
-  shipLine1: '500 Demo Street',
-  shipLine2: 'Apt 4B',
-  shipCity: 'Austin',
-  shipState: 'TX',
-  shipPostal: '78701',
-  shipCountry: 'US',
+// What a new demo account starts with (spec section 4.1), plus four sample orders.
+// - The name: an ordinary first and last name, one of these at random, so judges trying it side by
+//   side don't all get the same customer. A name alone points at nobody.
+// - The address: PayPal's own sandbox address (1 Main St, San Jose, CA 95131), the one its sandbox
+//   test buyers come with. Never a made-up home address: a plausible street and house number can
+//   turn out to be a real person's home, and the name next to it would make it look like theirs.
+const DEMO_NAMES = ['Sarah Johnson', 'Michael Brown', 'Emily Davis', 'David Miller', 'Jessica Wilson', 'James Anderson'] as const
+const DEMO_ADDRESS = { shipLine1: '1 Main St', shipLine2: null, shipCity: 'San Jose', shipState: 'CA', shipPostal: '95131', shipCountry: 'US' }
+
+function demoCustomer() {
+  return { name: DEMO_NAMES[Math.floor(Math.random() * DEMO_NAMES.length)]!, ...DEMO_ADDRESS }
 }
 
 export async function createDemoAccount(voiceMode: VoiceMode): Promise<Account> {
@@ -20,7 +22,7 @@ export async function createDemoAccount(voiceMode: VoiceMode): Promise<Account> 
     const account = await tx.account.create({
       data: {
         id: randomUUID(),
-        ...DEMO_CUSTOMER,
+        ...demoCustomer(),
         // No wallet of its own: the account pays with the shared sandbox buyer (see walletFor).
         vaultId: null,
         voiceMode,

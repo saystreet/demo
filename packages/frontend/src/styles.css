@@ -14,6 +14,7 @@
   --color-ink: #eef0f6;
   --color-ink-muted: #b4bdd6; /* 7:1 or more on every surface, hover states included */
   --color-accent: #ffd166;
+  --color-accent-bright: #ffe08f; /* hover on accent fills */
   --color-accent-ink: #0a1124;
   /* State colours, readable on navy. Always paired with words. */
   --color-good: #7ee2b0;

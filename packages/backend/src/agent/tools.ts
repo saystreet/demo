@@ -118,6 +118,7 @@ export type ToolState = {
   usedListing: boolean // the reply is based on a product listing
   decision: Decision | null // set when propose_purchase made (or refused) a mandate
   waiting: { title: string } | null // a mandate waiting for confirmation in this chat
+  title: string | null // what this turn was about, for naming a new chat; the first tool that knows sets it
 }
 
 export type ToolResult = {
@@ -164,6 +165,7 @@ async function searchProducts(args: Record<string, unknown>, state: ToolState): 
     const result = await searchOptions({ query, budgetCents: budget, store })
     state.options = result.options
     state.optionsChanged = true
+    state.title ??= searchTitle(query, budget, result.store?.name ?? null)
     const intro = result.store_unknown ? `${templates.storeUnknown()} ` : ''
     state.messages.push({
       role: 'system',
@@ -260,6 +262,7 @@ async function proposePurchase(args: Record<string, unknown>, state: ToolState):
 
 async function listOrdersTool(state: ToolState): Promise<ToolResult> {
   const orders = await db().order.findMany({ where: { accountId: state.account.id }, orderBy: { createdAt: 'desc' }, take: 5 })
+  state.title ??= 'My orders'
   state.messages.push({
     role: 'system',
     source: 'system',
@@ -277,6 +280,7 @@ async function trackOrder(args: Record<string, unknown>, state: ToolState): Prom
   const unresolved = whenUnresolved(resolved, state)
   if (unresolved) return unresolved
   const { order } = resolved as Extract<Resolved, { order: unknown }>
+  state.title ??= `Where's my ${order.title}`
   state.messages.push({ role: 'system', source: 'system', text: trackingPhrase(order), attachment: { kind: 'orders', orders: [toOrderSummary(order)] } })
   return { output: JSON.stringify({ order_id: order.id, title: order.title, status: statusWords(order) }), terminal: true }
 }
@@ -285,7 +289,14 @@ async function requestReturn(args: Record<string, unknown>, state: ToolState): P
   const resolved = await resolveForReturn(state.account.id, state.conversationId, orderIdArg(args))
   const unresolved = whenUnresolved(resolved, state)
   if (unresolved) return unresolved
-  const result = await refundOrder((resolved as Extract<Resolved, { order: unknown }>).order)
+  const order = (resolved as Extract<Resolved, { order: unknown }>).order
+  // Named by id but not here yet: nothing to send back.
+  if (order.fulfillmentStatus !== 'delivered' && order.fulfillmentStatus !== 'returned') {
+    state.messages.push({ role: 'system', source: 'system', text: templates.notDeliveredYet(order.title) })
+    return { output: JSON.stringify({ error: 'NOT_DELIVERED' }), terminal: true }
+  }
+  state.title ??= `Return: ${order.title}`
+  const result = await refundOrder(order)
   state.messages.push({
     role: 'system',
     source: 'system',
@@ -330,6 +341,7 @@ async function lookupLinkTool(args: Record<string, unknown>, state: ToolState): 
   }
   state.options = [result.option]
   state.optionsChanged = true
+  state.title ??= result.option.title
   state.messages.push({
     role: 'system',
     source: 'system',
@@ -340,4 +352,11 @@ async function lookupLinkTool(args: Record<string, unknown>, state: ToolState): 
     output: JSON.stringify({ option: { n: 1, product_id: result.option.product_id, title: result.option.title, merchant: result.option.merchant } }),
     terminal: true,
   }
+}
+
+// "Whistling kettle under $40", "Coffee grinder at Target": the search as a person would name it.
+function searchTitle(query: string, budgetCents: number | null, store: string | null): string {
+  const what = query.charAt(0).toUpperCase() + query.slice(1)
+  const under = budgetCents === null ? '' : ` under $${budgetCents % 100 === 0 ? budgetCents / 100 : (budgetCents / 100).toFixed(2)}`
+  return `${what}${under}${store ? ` at ${store}` : ''}`
 }

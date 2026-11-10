@@ -12,9 +12,17 @@ export type NewMessage = {
 
 const TITLE_MAX = 60
 
-// First 60 characters of the first message, cut at a word. No model involved.
+// A chat title from a phrase: what the first turn did (see the agent tools), else the first
+// thing said, tidied for a list read aloud: a pasted link becomes its site, a stutter from
+// speech ("how many, how many") is said once, no trailing period. 60 characters, cut at a word.
 export function titleFrom(text: string): string {
-  const clean = text.trim().replace(/\s+/g, ' ')
+  const clean = text
+    .trim()
+    .replace(/https?:\/\/(?:www\.)?([^/\s?#]+)\S*/gi, '$1')
+    .replace(/\b(\w+(?:\s+\w+){0,3}),?\s+\1\b/gi, '$1')
+    .replace(/\s+/g, ' ')
+    .replace(/[.!,;:]+$/, '')
+    .trim()
   if (clean.length <= TITLE_MAX) return clean || 'New chat'
   const cut = clean.slice(0, TITLE_MAX)
   const lastSpace = cut.lastIndexOf(' ')

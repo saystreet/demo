@@ -3,19 +3,28 @@ import { cn } from '../../lib/cn'
 
 // Form fields with a visible label and an error tied to the control (aria-describedby).
 
+// min-w-0: a field shrinks with its column instead of pushing the page sideways at large text sizes.
 const CONTROL =
-  'min-h-12 w-full rounded-(--radius-control) border border-edge bg-surface-1 px-4 text-base text-ink placeholder:text-ink-muted ' +
+  'min-h-12 w-full min-w-0 rounded-(--radius-control) border border-edge bg-surface-1 px-4 text-base text-ink placeholder:text-ink-muted ' +
   'hover:border-ink focus-visible:border-accent aria-invalid:border-bad'
 
-type FieldProps = { label: string; error?: string | null; hint?: string; children: (ids: { id: string; describedBy?: string }) => ReactNode }
+type FieldProps = {
+  label: string
+  id?: string // a stable id, e.g. to focus the field on an error; generated otherwise
+  error?: string | null
+  hint?: string
+  children: (ids: { id: string; describedBy?: string }) => ReactNode
+}
 
-export function Field({ label, error, hint, children }: FieldProps) {
-  const id = useId()
+// The control must use the `id` it's given: that's what the label points at.
+export function Field({ label, id: fixedId, error, hint, children }: FieldProps) {
+  const generated = useId()
+  const id = fixedId ?? generated
   const hintId = hint ? `${id}-hint` : undefined
   const errorId = error ? `${id}-error` : undefined
   const describedBy = [hintId, errorId].filter(Boolean).join(' ') || undefined
   return (
-    <div className="grid gap-1.5">
+    <div className="grid min-w-0 gap-1.5">
       <label htmlFor={id} className="font-semibold">
         {label}
       </label>

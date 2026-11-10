@@ -17,6 +17,25 @@ const unlock = () => {
 window.addEventListener('pointerdown', unlock)
 window.addEventListener('keydown', unlock)
 
+// After a deploy, an open tab can ask for a page file that no longer exists. Reload once to get
+// the new version; if that doesn't help, the route's error screen takes over.
+const RELOADED = 'saystreet.reloaded'
+window.addEventListener('vite:preloadError', (event) => {
+  try {
+    if (sessionStorage.getItem(RELOADED)) return
+    sessionStorage.setItem(RELOADED, '1')
+  } catch {
+    return
+  }
+  event.preventDefault()
+  window.location.reload()
+})
+window.setTimeout(() => {
+  try {
+    sessionStorage.removeItem(RELOADED)
+  } catch {}
+}, 10_000)
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>

@@ -300,6 +300,26 @@ export async function cancelMandate(account: Account, mandateId: string): Promis
   return say(updated, templates.cancelled(), 'cancelled', true)
 }
 
+// "More time" on the payment card (WCAG 2.2.1): another full window to read and decide. Safe for
+// money: the price is checked against the store again when the person pays. Null when the
+// proposal is no longer waiting (paid, cancelled, expired).
+export async function extendMandate(account: Account, mandateId: string): Promise<MandateView | null> {
+  await expireStale(account.id)
+  const expiresAt = new Date(Date.now() + TTL_MS)
+  const { count } = await db().mandate.updateMany({
+    where: { id: mandateId, accountId: account.id, status: 'proposed' },
+    data: { expiresAt },
+  })
+  if (count === 0) {
+    const exists = await db().mandate.findFirst({ where: { id: mandateId, accountId: account.id }, select: { id: true } })
+    if (!exists) throw new MandateNotFound()
+    return null
+  }
+  await audit(account.id, 'mandate.extended', `EXTENDED ${fields({ mandate: shortId(mandateId), until: expiresAt.toISOString() })}`, { mandateId })
+  const mandate = await db().mandate.findUniqueOrThrow({ where: { id: mandateId } })
+  return toMandateView(mandate)
+}
+
 // No timer: every request first turns overdue proposals into "expired".
 export async function expireStale(accountId: string): Promise<void> {
   await db().mandate.updateMany({

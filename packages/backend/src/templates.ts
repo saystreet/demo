@@ -7,7 +7,7 @@ const COUNT_WORDS = ['One', 'Two', 'Three']
 
 export const templates = {
   // The frontend shows this in an empty chat; it is not stored as a message.
-  welcome: () => "Hi, I'm SayStreet. Tell me what you need, or paste a product link.",
+  welcome: () => "Hi, I'm SayStreet. What are you shopping for today?",
 
   options: (options: OptionCard[], store: string | null) => {
     if (options.length === 0) return templates.noOptions()
@@ -15,16 +15,16 @@ export const templates = {
     const intro = store ? `${count} from ${store}.` : `${count}.`
     const items = options.map((option, i) => {
       const rating = option.rating === null ? '' : `, ${option.rating.toFixed(1)} stars`
-      return `${COUNT_WORDS[i]}: ${option.title}, ${formatUSD(option.total_cents)} delivered${rating}.`
+      return `${COUNT_WORDS[i]}: ${option.title}, ${formatUSD(option.total_cents)} with shipping${rating}.`
     })
-    return [intro, ...items].join(' ')
+    return [intro, ...items, 'Say a number to choose.'].join(' ')
   },
 
   linkFound: (option: OptionCard) =>
-    `Found it: ${option.title} on ${option.merchant}, ${formatUSD(option.total_cents)} delivered. Say buy it to get the total, or ask about it.`,
+    `Found it: ${option.title} from ${option.merchant}, ${formatUSD(option.total_cents)} with shipping. Say "buy it" for the total, or ask me about it.`,
   linkFailed: () => "I couldn't read that link. Try again, or tell me what you're looking for.",
   linkNotProduct: () => "That link isn't a product page. Open the product itself and copy its link.",
-  askAbout: (title: string) => `Ask me anything about the ${title}. Or say buy it.`,
+  askAbout: (title: string) => `Ask me anything about the ${title}, or say "buy it".`,
   noOptions: () => 'I found nothing that fits. Try different words or a higher budget.',
   storeUnknown: () => "I don't know that store. Here's what I found everywhere.",
   catalogDown: () => "I can't reach the store catalog right now. Try again in a moment.",
@@ -36,17 +36,17 @@ export const templates = {
     `Say "pay ${m.spoken}", or cancel.`,
   priceChanged: (liveTotalCents: number, budgetCents: number | null) =>
     budgetCents !== null && liveTotalCents > budgetCents
-      ? `Price changed to ${formatUSD(liveTotalCents)}. That's over your ${formatUSD(budgetCents)}. I haven't paid.`
-      : `Price changed to ${formatUSD(liveTotalCents)}. I haven't paid. Say the item again to get a new total.`,
-  overLimit: (limitCents: number) => `That's over your ${formatUSD(limitCents)} limit per purchase. I haven't paid.`,
-  overWeeklyLimit: (limitCents: number) => `That would go over your ${formatUSD(limitCents)} weekly limit. I haven't paid.`,
+      ? `Price changed to ${formatUSD(liveTotalCents)}. That's over your ${formatUSD(budgetCents)}. Nothing was paid.`
+      : `Price changed to ${formatUSD(liveTotalCents)}. Nothing was paid. Ask for it again to get a new total.`,
+  overLimit: (limitCents: number) => `That's over your ${formatUSD(limitCents)} limit per purchase. Nothing was paid.`,
+  overWeeklyLimit: (limitCents: number) => `That would go over your ${formatUSD(limitCents)} weekly limit. Nothing was paid.`,
   amountMismatch: (heardCents: number, totalCents: number) =>
-    `I heard ${formatUSD(heardCents)}, the total is ${formatUSD(totalCents)}. I haven't paid.`,
+    `I heard ${formatUSD(heardCents)}, but the total is ${formatUSD(totalCents)}. Nothing was paid.`,
   amountMissing: (spoken: string) => `To pay, say the amount: "pay ${spoken}". Or use the Pay button.`,
-  expired: () => 'This expired. Say the item again.',
+  expired: () => 'This payment expired. Nothing was paid. Ask for it again to get a new total.',
   cancelled: () => 'Cancelled. Nothing was paid.',
-  outOfStock: () => "It's out of stock now. I haven't paid.",
-  priceUnavailable: () => "I couldn't check the current price, so I haven't paid. Try again in a moment.",
+  outOfStock: () => "It's out of stock now. Nothing was paid.",
+  priceUnavailable: () => "I couldn't check the current price. Nothing was paid. Try again in a moment.",
   unknownProduct: () => 'Which one? Say one, two or three.',
   paid: (totalCents: number, weekday: string) => `${formatUSD(totalCents)} paid. PayPal confirmed. It arrives ${weekday}.`,
   pending: () => "PayPal is still processing. I'll tell you when it's done. Don't pay again.",
@@ -69,14 +69,15 @@ export const templates = {
   shipped: (title: string, carrier: string, trackingLast4: string, etaWeekday: string) =>
     `Your ${title} has shipped. ${carrier}, tracking ending ${trackingLast4}. It should arrive ${etaWeekday}.`,
   delivered: (title: string) => `Your ${title} was delivered.`,
-  nothingToShip: () => 'There is no order to move along. Buy something first.',
+  nothingToShip: () => 'No order is waiting to ship or be delivered. Buy something first.',
   noOrder: () => "You don't have an order that fits. Say \"my orders\" to hear them.",
-  refundStarted: (totalCents: number) => `Refund of ${formatUSD(totalCents)} started.`,
-  refundDone: (totalCents: number) => `Refund of ${formatUSD(totalCents)} done.`,
+  refundStarted: (totalCents: number, title: string) => `Refund of ${formatUSD(totalCents)} for the ${title} started.`,
+  refundDone: (totalCents: number, title: string) => `${formatUSD(totalCents)} refunded for the ${title}.`,
   alreadyRefunded: () => 'That order is already refunded.',
+  notDeliveredYet: (title: string) => `Your ${title} hasn't arrived yet. You can return it once it's delivered.`,
   refundFailed: () => "PayPal didn't accept the refund. Nothing changed. Try again in a moment.",
 
-  notHeard: () => "I didn't catch that.",
+  notHeard: () => "I didn't catch that. Try again.",
   busy: () => 'The demo is busy right now. Try again in a few minutes.',
   tooManyAccounts: () => 'Too many demo accounts were created from here. Try again in an hour.',
   error: () => 'Something went wrong on my side. Nothing was paid. Try again.',

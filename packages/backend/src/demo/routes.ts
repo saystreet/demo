@@ -4,6 +4,7 @@ import { recentAudit } from '../audit'
 import { type AuthEnv, requireAccount } from '../auth'
 import { findConversation } from '../conversations/service'
 import { db } from '../db'
+import { Prisma } from '../generated/prisma/client'
 import { findOrder, toOrderView } from '../orders/service'
 import { advanceOrder, latestOpenOrder } from '../orders/shipping'
 import { templates } from '../templates'
@@ -14,7 +15,8 @@ import { templates } from '../templates'
 export const demoRoutes = new Hono<AuthEnv>()
 
 // POST /api/demo/price-override
-//   { conversation_id, option_n: 1 | 2 | 3, delta_cents }  "Raise price of option 1 by $7"
+//   { conversation_id?, option_n: 1 | 2 | 3, delta_cents }  "Raise price of option 1 by $7"
+//     Without conversation_id: the most recent chat that has options (the button lives in Settings).
 //   { clear: true }                                         "Clear price changes"
 // Only the payment-time price check sees the new price, so the change happens "after choosing".
 demoRoutes.post('/demo/price-override', requireAccount, async (c) => {
@@ -28,11 +30,20 @@ demoRoutes.post('/demo/price-override', requireAccount, async (c) => {
     return c.json({ ok: true })
   }
 
-  if (typeof body.conversation_id !== 'string') return c.json<ApiError>({ error: 'missing_conversation' }, 400)
-  const conversation = await findConversation(account.id, body.conversation_id)
-  if (!conversation) return c.json<ApiError>({ error: 'not_found' }, 404)
+  const conversation =
+    typeof body.conversation_id === 'string'
+      ? await findConversation(account.id, body.conversation_id)
+      : await db().conversation.findFirst({
+          where: { accountId: account.id, options: { not: Prisma.AnyNull } },
+          orderBy: { updatedAt: 'desc' },
+        })
+  if (!conversation) {
+    return typeof body.conversation_id === 'string'
+      ? c.json<ApiError>({ error: 'not_found' }, 404)
+      : c.json<ApiError>({ error: 'no_options', say: 'To raise a price, first ask for a product in a chat.' }, 409)
+  }
   const option = ((conversation.options as OptionCard[] | null) ?? []).find((o) => o.n === body.option_n)
-  if (!option) return c.json<ApiError>({ error: 'no_such_option' }, 400)
+  if (!option) return c.json<ApiError>({ error: 'no_such_option', say: 'To raise a price, first ask for a product in a chat.' }, 409)
   const delta = typeof body.delta_cents === 'number' && Number.isInteger(body.delta_cents) ? body.delta_cents : null
   if (delta === null || delta === 0 || Math.abs(delta) > 100_000) return c.json<ApiError>({ error: 'invalid_delta' }, 400)
 
@@ -42,7 +53,7 @@ demoRoutes.post('/demo/price-override', requireAccount, async (c) => {
     create: { accountId: account.id, productId: option.product_id, itemCents },
     update: { itemCents },
   })
-  return c.json({ ok: true, product_id: option.product_id, item_cents: itemCents })
+  return c.json({ ok: true, product_id: option.product_id, item_cents: itemCents, title: option.title, conversation_id: conversation.id })
 })
 
 // POST /api/demo/advance-order { order_id? }  "Ship latest order" / "Mark delivered".

@@ -3,8 +3,11 @@ import { createContext, type ReactNode, useCallback, useContext, useEffect, useM
 
 // One way out for everything SayStreet says (spec 16.9).
 // - screen_reader: phrases go to one polite live region; VoiceOver reads them in its own voice.
+//   One reply is one update: iOS VoiceOver cuts off a polite announcement when the next lands.
 //   No role="alert" or aria-live="assertive": on iOS those double-read.
 // - spoken: the browser's own voice reads them (speechSynthesis), one at a time, 300 ms apart.
+//   Nothing goes to the live region then, so a screen reader that happens to be on doesn't
+//   read the same words over the browser's voice.
 // While the person is recording, nothing is said; phrases wait until recording ends.
 
 type Announcer = {
@@ -17,7 +20,10 @@ type Announcer = {
 
 const Context = createContext<Announcer | null>(null)
 const GAP_MS = 300
-const REGION_KEEP = 10
+// Only the latest message stays in the region, and not for long: a screen reader user swiping
+// past it later shouldn't hear a stack of old "Saved." lines.
+const REGION_KEEP = 1
+const REGION_CLEAR_MS = 8000
 
 export function AnnouncerProvider({ children }: { children: ReactNode }) {
   const [region, setRegion] = useState<{ id: number; text: string }[]>([])
@@ -28,6 +34,8 @@ export function AnnouncerProvider({ children }: { children: ReactNode }) {
   const held = useRef(false)
   const busy = useRef(false)
   const nextId = useRef(0)
+  // Bumped by stop(): a finished or cancelled utterance from before can't restart the queue.
+  const generation = useRef(0)
 
   const pump = useCallback(() => {
     if (busy.current || held.current) return
@@ -37,13 +45,14 @@ export function AnnouncerProvider({ children }: { children: ReactNode }) {
       return
     }
     busy.current = true
+    const mine = generation.current
+    let watchdog: number | undefined
     const done = () => {
+      window.clearTimeout(watchdog)
+      if (mine !== generation.current || !busy.current) return
       busy.current = false
       window.setTimeout(pump, GAP_MS)
     }
-
-    // The live region always gets the phrase, in both modes.
-    setRegion((items) => [...items, { id: nextId.current++, text }].slice(-REGION_KEEP))
 
     if (mode.current === 'spoken' && 'speechSynthesis' in window) {
       setSpeaking(true)
@@ -54,9 +63,14 @@ export function AnnouncerProvider({ children }: { children: ReactNode }) {
       if (voice) utterance.voice = voice
       utterance.onend = done
       utterance.onerror = done
+      // Safari may never fire onend (no user gesture yet, a stuck voice): don't wait forever.
+      watchdog = window.setTimeout(done, 4000 + (text.length * 90) / rate.current)
       window.speechSynthesis.speak(utterance)
     } else {
-      // Give VoiceOver time to start one phrase before the next lands in the region.
+      const id = nextId.current++
+      setRegion((items) => [...items, { id, text }].slice(-REGION_KEEP))
+      window.setTimeout(() => setRegion((items) => items.filter((item) => item.id !== id)), REGION_CLEAR_MS)
+      // Give VoiceOver time to start one update before the next lands in the region.
       window.setTimeout(done, 40)
     }
   }, [])
@@ -65,13 +79,15 @@ export function AnnouncerProvider({ children }: { children: ReactNode }) {
     (phrases: string[]) => {
       const clean = phrases.map((p) => p.trim()).filter(Boolean)
       if (!clean.length) return
-      queue.current.push(...clean)
+      if (mode.current === 'spoken') queue.current.push(...clean)
+      else queue.current.push(clean.join(' '))
       pump()
     },
     [pump],
   )
 
   const stop = useCallback(() => {
+    generation.current++
     queue.current = []
     if ('speechSynthesis' in window) window.speechSynthesis.cancel()
     busy.current = false

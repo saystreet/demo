@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect } from 'react'
 import { createBrowserRouter, redirect, useNavigate } from 'react-router'
 import { useMe } from './api/queries'
+import { RouteError } from './components/route-error'
 import { SIGNED_OUT_EVENT } from './lib/api'
 import { useAnnouncer } from './lib/announcer'
 import { getToken } from './lib/session'
@@ -38,6 +39,7 @@ export const router = createBrowserRouter([
   {
     // The first paint waits for the page's code: the dark background for a moment, not a loading line.
     HydrateFallback: () => null,
+    ErrorBoundary: RouteError,
     children: [
       // No token: the start screen. A token: straight to the chat.
       { path: '/', loader: () => (getToken() ? redirect('/chat') : null), lazy: page(() => import('./pages/start')) },

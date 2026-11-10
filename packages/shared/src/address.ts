@@ -21,9 +21,12 @@ const STATE_CODES = new Set(US_STATES.map(([code]) => code))
 
 export type AddressField = 'name' | 'line1' | 'line2' | 'city' | 'state' | 'postal' | 'country'
 
+export type AddressProblem = { field: AddressField; message: string } // message: shown under the field
+
 export type AddressCheck =
   | { ok: true; address: ShippingAddress } // trimmed, state upper-cased, empty line2 as null
-  | { ok: false; field: AddressField; message: string } // message: shown under the field
+  // The first problem, plus every problem in form order, so a form can flag them all at once.
+  | { ok: false; field: AddressField; message: string; problems: AddressProblem[] }
 
 export function validateAddress(input: Partial<Record<AddressField, unknown>>): AddressCheck {
   const text = (value: unknown) => (typeof value === 'string' ? value.trim().replace(/\s+/g, ' ') : '')
@@ -32,20 +35,20 @@ export function validateAddress(input: Partial<Record<AddressField, unknown>>): 
   const line2 = text(input.line2)
   const city = text(input.city)
   const state = text(input.state).toUpperCase()
-  const postal = text(input.postal)
+  // ZIP+4 is accepted and kept as the five-digit ZIP.
+  const postal = text(input.postal).replace(/^(\d{5})-?\d{4}$/, '$1')
   const country = text(input.country || 'US').toUpperCase()
 
-  if (!name || name.length > 100) return fail('name', 'Enter the full name, up to 100 characters.')
-  if (!line1 || line1.length > 100) return fail('line1', 'Enter the street address, up to 100 characters.')
-  if (line2.length > 100) return fail('line2', 'Keep address line 2 under 100 characters.')
-  if (!city || city.length > 100) return fail('city', 'Enter the city, up to 100 characters.')
-  if (!STATE_CODES.has(state)) return fail('state', 'Choose a US state.')
-  if (!/^\d{5}$/.test(postal)) return fail('postal', 'Enter a 5-digit ZIP code.')
-  if (country !== 'US') return fail('country', 'Only US addresses are supported.')
+  const problems: AddressProblem[] = []
+  const fail = (field: AddressField, message: string) => problems.push({ field, message })
+  if (!name || name.length > 100) fail('name', 'Enter the full name, up to 100 characters.')
+  if (!line1 || line1.length > 100) fail('line1', 'Enter the street address, up to 100 characters.')
+  if (line2.length > 100) fail('line2', 'Keep address line 2 under 100 characters.')
+  if (!city || city.length > 100) fail('city', 'Enter the city, up to 100 characters.')
+  if (!STATE_CODES.has(state)) fail('state', 'Choose a US state.')
+  if (!/^\d{5}$/.test(postal)) fail('postal', 'Enter a 5-digit ZIP code.')
+  if (country !== 'US') fail('country', 'Only US addresses are supported.')
 
+  if (problems.length) return { ok: false, ...problems[0]!, problems }
   return { ok: true, address: { name, line1, line2: line2 || null, city, state, postal, country: 'US' } }
-}
-
-function fail(field: AddressField, message: string): AddressCheck {
-  return { ok: false, field, message }
 }

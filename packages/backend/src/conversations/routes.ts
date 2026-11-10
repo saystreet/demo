@@ -39,8 +39,11 @@ conversationRoutes.post('/turn', requireAccount, async (c) => {
 
   // One turn at a time per chat: the agent chain on OpenAI must not fork.
   return withChatLock(conversation.id, async () => {
-    // An empty chat made with "New chat" takes its title from the first thing said.
-    if (conversation.title === 'New chat' && (await db().message.count({ where: { conversationId: conversation.id } })) === 0) {
+    // The chat's first turn names it: for now from the first thing said; after the agent, from
+    // what it did ("Whistling kettle under $40", "Return: French Press"). Later turns and a name
+    // the person chose never change it.
+    const firstTurn = (await db().message.count({ where: { conversationId: conversation.id } })) === 0
+    if (firstTurn && conversation.title === 'New chat') {
       await db().conversation.update({ where: { id: conversation.id }, data: { title: titleFrom(text) } })
     }
     const already = await addMessages(conversation.id, [{ role: 'user', text }])
@@ -94,6 +97,7 @@ conversationRoutes.post('/turn', requireAccount, async (c) => {
 
     const fresh = (await findConversation(account.id, conversation.id)) ?? conversation
     const turn = await runAgentTurn(account, fresh, text, waiting ? { title: waiting.title } : null)
+    if (firstTurn && turn.title) await db().conversation.update({ where: { id: conversation.id }, data: { title: titleFrom(turn.title) } })
     const sound = turn.failed ? 'error' : (turn.decision?.sound ?? (turn.options ? 'options' : 'reply'))
     return c.json<TurnResponse>(
       await respond(conversation.id, { already, messages: turn.messages, options: turn.options, decision: turn.decision, sound }),

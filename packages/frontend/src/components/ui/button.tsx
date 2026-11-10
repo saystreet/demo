@@ -19,8 +19,10 @@ const SIZES: Record<ButtonSize, string> = {
 
 export function buttonClass(variant: ButtonVariant = 'primary', size: ButtonSize = 'md', extra?: string) {
   return cn(
-    'inline-flex items-center justify-center gap-2 rounded-full font-bold transition-colors duration-150',
-    'disabled:cursor-not-allowed disabled:opacity-55 aria-disabled:cursor-not-allowed aria-disabled:opacity-55',
+    // Not transition-colors: that also animates outline-color, so the focus ring would fade in from the text colour.
+    'inline-flex items-center justify-center gap-2 rounded-full font-bold transition-[color,background-color,border-color] duration-150',
+    // 70%: still reads as unavailable, and its text stays above 7:1.
+    'disabled:cursor-not-allowed disabled:opacity-70 aria-disabled:cursor-not-allowed aria-disabled:opacity-70',
     'forced-colors:border-2',
     VARIANTS[variant],
     variant === 'quiet' ? 'min-h-12' : SIZES[size],

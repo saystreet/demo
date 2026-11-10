@@ -1,9 +1,11 @@
 import type { ConversationSummary } from '@saystreet/shared'
 import { DotsThreeVertical, Package, Plus, Sliders } from '@phosphor-icons/react'
 import { Dialog, DropdownMenu } from 'radix-ui'
-import { type FormEvent, useState } from 'react'
+import { type FormEvent, useRef, useState } from 'react'
 import { Link, NavLink, useNavigate, useParams } from 'react-router'
 import { useConversations, useDeleteConversation, useMe, useRenameConversation } from '../api/queries'
+import { ApiError } from '../lib/api'
+import { useAnnouncer } from '../lib/announcer'
 import { cn } from '../lib/cn'
 import { ConfirmDialog } from './ui/alert-dialog'
 import { Button, buttonClass } from './ui/button'
@@ -22,7 +24,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         <img src="/brand/lockup-for-dark-bg.svg" alt="SayStreet, new chat" width="160" height="32" className="h-8 w-auto" />
       </Link>
 
-      <Link to="/chat" onClick={onNavigate} className={buttonClass('secondary', 'md', 'w-full justify-start')}>
+      <Link to="/chat" onClick={onNavigate} data-new-chat className={buttonClass('secondary', 'md', 'w-full justify-start')}>
         <Plus aria-hidden="true" size={20} weight="bold" />
         New chat
       </Link>
@@ -69,8 +71,23 @@ const navClass = ({ isActive }: { isActive: boolean }) =>
 
 function ChatRow({ chat, current, onNavigate }: { chat: ConversationSummary; current: boolean; onNavigate?: () => void }) {
   const [renaming, setRenaming] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const confirmed = useRef(false)
+  const moreRef = useRef<HTMLButtonElement>(null)
   const remove = useDeleteConversation()
   const navigate = useNavigate()
+  const { say } = useAnnouncer()
+
+  const onDelete = () => {
+    confirmed.current = true
+    remove.mutate(chat.id, {
+      onSuccess: () => {
+        say(['Chat deleted.'])
+        if (current) navigate('/chat', { replace: true })
+      },
+      onError: (error) => say([error instanceof ApiError && error.say ? error.say : "Couldn't delete the chat. Try again."]),
+    })
+  }
 
   return (
     // min-w-0: a grid item otherwise grows to its title's length and pushes the menu button out.
@@ -84,36 +101,40 @@ function ChatRow({ chat, current, onNavigate }: { chat: ConversationSummary; cur
         <span className="truncate">{chat.title}</span>
       </Link>
       <DropdownMenu.Root>
-        <DropdownMenu.Trigger className="grid size-12 shrink-0 place-items-center rounded-(--radius-control) text-ink-muted hover:bg-surface-3 hover:text-ink">
+        <DropdownMenu.Trigger ref={moreRef} className="grid size-12 shrink-0 place-items-center rounded-(--radius-control) text-ink-muted hover:bg-surface-3 hover:text-ink">
           <DotsThreeVertical size={22} weight="bold" aria-hidden="true" />
-          <span className="sr-only">More for {chat.title}</span>
+          <span className="sr-only">Options for {chat.title}</span>
         </DropdownMenu.Trigger>
         <DropdownMenu.Portal>
           <DropdownMenu.Content align="end" sideOffset={4} className="z-50 min-w-40 rounded-(--radius-control) border border-edge bg-surface-1 p-1 shadow-[0_12px_32px_rgb(0_0_0/0.45)]">
             <DropdownMenu.Item onSelect={() => setRenaming(true)} className={menuItem}>
               Rename
             </DropdownMenu.Item>
-            <ConfirmDialog
-              title="Delete this chat?"
-              description="The chat and its messages go away. Orders stay in Orders."
-              confirm="Delete chat"
-              danger
-              onConfirm={() =>
-                remove.mutate(chat.id, {
-                  onSuccess: () => {
-                    if (current) navigate('/chat')
-                  },
-                })
-              }
-              trigger={
-                <DropdownMenu.Item onSelect={(event) => event.preventDefault()} className={cn(menuItem, 'text-bad')}>
-                  Delete
-                </DropdownMenu.Item>
-              }
-            />
+            <DropdownMenu.Item onSelect={() => setDeleting(true)} className={cn(menuItem, 'text-bad data-highlighted:bg-surface-2')}>
+              Delete
+            </DropdownMenu.Item>
           </DropdownMenu.Content>
         </DropdownMenu.Portal>
       </DropdownMenu.Root>
+      {/* Outside the menu, opened by state: the menu item that opened it is gone by the time it closes. */}
+      <ConfirmDialog
+        open={deleting}
+        onOpenChange={(open) => {
+          if (open) confirmed.current = false
+          setDeleting(open)
+        }}
+        // Deleted: this row is about to go, so land on New chat. Cancelled: back on this row's menu button.
+        onCloseAutoFocus={(event) => {
+          event.preventDefault()
+          if (confirmed.current) [...document.querySelectorAll<HTMLElement>('[data-new-chat]')].find((el) => el.offsetParent)?.focus()
+          else moreRef.current?.focus()
+        }}
+        title="Delete this chat?"
+        description="This deletes the chat and its messages for good. Your orders stay on the Orders page."
+        confirm="Delete chat"
+        danger
+        onConfirm={onDelete}
+      />
       <RenameDialog chat={chat} open={renaming} onOpenChange={setRenaming} />
     </li>
   )

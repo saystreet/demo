@@ -22,6 +22,7 @@ export type AgentTurn = {
   options: OptionCard[] | null // null: options didn't change
   decision: Decision | null // a mandate propose_purchase made or refused
   failed: boolean
+  title: string | null // what the turn was about, for naming a new chat
 }
 
 let client: OpenAI | null = null
@@ -45,6 +46,7 @@ export async function runAgentTurn(
     usedListing: false,
     decision: null,
     waiting,
+    title: null,
   }
   const pending = (conversation.pendingToolOutputs as PendingOutput[] | null) ?? []
 
@@ -63,16 +65,16 @@ export async function runAgentTurn(
     if (result.text) messages.push({ role: 'agent', text: result.text, source: state.usedListing ? 'listing' : null })
     messages.push(...state.messages)
     if (messages.length === 0) messages.push({ role: 'system', source: 'system', text: templates.notHeard() })
-    return { messages, options: state.optionsChanged ? state.options : null, decision: state.decision, failed: false }
+    return { messages, options: state.optionsChanged ? state.options : null, decision: state.decision, failed: false, title: state.title }
   } catch (error) {
     console.error('Agent turn failed', error)
     // Drop the chain: a half-finished tool call would break the next turn.
     await saveChain(conversation.id, null, [], state)
     // Whatever the tools already did (options found, a mandate proposed) is still real: say it.
     if (state.messages.length > 0) {
-      return { messages: state.messages, options: state.optionsChanged ? state.options : null, decision: state.decision, failed: false }
+      return { messages: state.messages, options: state.optionsChanged ? state.options : null, decision: state.decision, failed: false, title: state.title }
     }
-    return { messages: [{ role: 'system', source: 'system', text: templates.error() }], options: null, decision: null, failed: true }
+    return { messages: [{ role: 'system', source: 'system', text: templates.error() }], options: null, decision: null, failed: true, title: null }
   }
 }
 

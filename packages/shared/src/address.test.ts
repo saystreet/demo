@@ -20,13 +20,26 @@ describe('validateAddress', () => {
     ['state', { state: 'XX' }],
     ['state', { state: 'Texas' }],
     ['postal', { postal: '7870' }],
-    ['postal', { postal: '78701-1234' }],
     ['postal', { postal: 'ABCDE' }],
     ['country', { country: 'CA' }],
   ])('rejects bad %s', (field, change) => {
     const result = validateAddress({ ...good, ...change })
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.field).toBe(field)
+  })
+
+  it('accepts ZIP+4 and keeps the five-digit ZIP', () => {
+    const result = validateAddress({ ...good, postal: '78701-1234' })
+    expect(result.ok && result.address.postal).toBe('78701')
+  })
+
+  it('lists every problem in form order', () => {
+    const result = validateAddress({ ...good, name: '', postal: '12' })
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.field).toBe('name')
+      expect(result.problems.map((p) => p.field)).toEqual(['name', 'postal'])
+    }
   })
 
   it('has 50 states and DC', () => {

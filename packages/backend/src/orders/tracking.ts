@@ -47,11 +47,12 @@ export async function resolveForTracking(accountId: string, conversationId: stri
   })
 }
 
-// The order "return it" means: the one named, else this chat's order, else the only paid one from the last 30 days.
+// The order "return it" means: the one named, else this chat's order, else the only delivered and
+// paid one from the last 30 days. What hasn't arrived yet can't be sent back.
 export async function resolveForReturn(accountId: string, conversationId: string, orderId: string | null): Promise<Resolved> {
   return resolve(accountId, conversationId, orderId, {
     paymentStatus: 'paid',
-    fulfillmentStatus: { not: 'returned' },
+    fulfillmentStatus: 'delivered',
     createdAt: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) },
   })
 }
@@ -93,7 +94,7 @@ export async function refundOrder(order: OrderWithEvents): Promise<RefundResult>
   if (order.isSample) {
     const updated = await markRefunded(order, null, 'refunded', 'Sample order, no PayPal refund')
     await audit(order.accountId, 'order.refunded', `SAMPLE ${fields({ order: shortId(order.id) })} refund simulated → no Payments API call`)
-    return { status: 'done', order: updated, phrase: templates.refundDone(order.totalCents) }
+    return { status: 'done', order: updated, phrase: templates.refundDone(order.totalCents, order.title) }
   }
 
   if (!order.captureId) return { status: 'failed', order, phrase: templates.refundFailed() }
@@ -102,7 +103,7 @@ export async function refundOrder(order: OrderWithEvents): Promise<RefundResult>
     const done = refund.status === 'COMPLETED'
     const updated = await markRefunded(order, refund.refundId, done ? 'refunded' : 'refund_pending', null)
     await audit(order.accountId, 'order.refunded', `REFUND ${fields({ order: shortId(order.id), total: order.totalCents, capture: order.captureId, refund: refund.refundId, status: refund.status })}`)
-    return { status: done ? 'done' : 'started', order: updated, phrase: done ? templates.refundDone(order.totalCents) : templates.refundStarted(order.totalCents) }
+    return { status: done ? 'done' : 'started', order: updated, phrase: done ? templates.refundDone(order.totalCents, order.title) : templates.refundStarted(order.totalCents, order.title) }
   } catch (error) {
     console.error('Refund failed', error)
     const reason = error instanceof PayPalError ? `PAYPAL_${error.status}` : 'PAYPAL_UNREACHABLE'

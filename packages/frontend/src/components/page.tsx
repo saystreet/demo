@@ -19,13 +19,17 @@ export function PageTitle({ children, className }: { children: ReactNode; classN
   )
 }
 
-export function Section({ title, children, className }: { title: string; children: ReactNode; className?: string }) {
+// `status` sits beside the heading, e.g. "Saved" after a change in this section.
+export function Section({ title, status, children, className }: { title: string; status?: ReactNode; children: ReactNode; className?: string }) {
   const id = `section-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`
   return (
     <section aria-labelledby={id} className={cn('border-t border-line pt-6', className)}>
-      <h2 id={id} className="text-xl font-bold">
-        {title}
-      </h2>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4">
+        <h2 id={id} className="text-xl font-bold">
+          {title}
+        </h2>
+        {status}
+      </div>
       <div className="mt-4">{children}</div>
     </section>
   )

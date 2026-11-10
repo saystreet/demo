@@ -8,8 +8,12 @@ import { Button } from '../ui/button'
 
 // Cards under SayStreet's messages (spec 16.4): options, the payment ledger, orders.
 
-export function OptionsCard({ options, conversationId }: { options: OptionCard[]; conversationId: string | null }) {
+type OptionsProps = { options: OptionCard[]; conversationId: string | null; busy: boolean; onChoose: (n: number) => void }
+
+// Choosing works by voice ("two") and with a button, so nobody has to guess it.
+export function OptionsCard({ options, conversationId, busy, onChoose }: OptionsProps) {
   return (
+    <>
     <ol className="mt-4 divide-y divide-line border-y border-line">
       {options.map((option) => {
         const rating = ratingWords(option.rating, option.rating_count)
@@ -34,12 +38,17 @@ export function OptionsCard({ options, conversationId }: { options: OptionCard[]
               <p className="data mt-1 text-lg sm:hidden">
                 {formatUSD(option.total_cents)} <span className="font-sans text-base text-ink-muted">with shipping</span>
               </p>
-              <Link
-                to={`${href}${conversationId ? `&c=${conversationId}` : ''}`}
-                className="mt-1 inline-flex min-h-12 items-center font-semibold underline underline-offset-4 hover:text-accent"
-              >
-                Details<span className="sr-only"> for option {option.n}, {option.title}</span>
-              </Link>
+              <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-1">
+                <Button variant="secondary" aria-disabled={busy || undefined} onClick={() => !busy && onChoose(option.n)}>
+                  Buy<span className="sr-only"> option {option.n}, {option.title}</span>
+                </Button>
+                <Link
+                  to={`${href}${conversationId ? `&c=${conversationId}` : ''}`}
+                  className="inline-flex min-h-12 items-center font-semibold underline underline-offset-4 hover:text-accent"
+                >
+                  Details<span className="sr-only"> for option {option.n}, {option.title}</span>
+                </Link>
+              </div>
             </div>
             <p className="data hidden text-right text-lg sm:block">
               {formatUSD(option.total_cents)}
@@ -49,6 +58,8 @@ export function OptionsCard({ options, conversationId }: { options: OptionCard[]
         )
       })}
     </ol>
+    <p className="mt-3 text-ink-muted">Say a number to choose, or press Buy. You'll hear the total before anything is paid.</p>
+    </>
   )
 }
 
@@ -59,12 +70,17 @@ type MandateProps = {
   onPay: (mandate: MandateView) => void
   onCancel: (mandate: MandateView) => void
   onExpiring: () => void
+  onExpired: (mandate: MandateView) => void
+  onExtend: (mandate: MandateView) => void
 }
 
 // The payment ledger. "Ready to pay" with two equal buttons while it waits; then a receipt,
 // a refusal with the engine's log line, or a short closed note.
-export function MandateCard({ mandate, live, busy, onPay, onCancel, onExpiring }: MandateProps) {
+export function MandateCard({ mandate, live, busy, onPay, onCancel, onExpiring, onExpired, onExtend }: MandateProps) {
   const total = formatUSD(mandate.total_cents)
+  // Set by the countdown at zero; "More time" brings a new expires_at, which starts a fresh countdown.
+  const [expiredAt, setExpiredAt] = useState<string | null>(null)
+  const expired = expiredAt === mandate.expires_at
 
   if (mandate.status === 'paid') {
     return (
@@ -96,7 +112,7 @@ export function MandateCard({ mandate, live, busy, onPay, onCancel, onExpiring }
         )}
         {mandate.order_id && (
           <Link to={`/orders/${mandate.order_id}`} className="mt-3 inline-flex min-h-12 items-center font-semibold underline underline-offset-4 hover:text-accent">
-            Order details
+            Order details<span className="sr-only"> for {mandate.title}</span>
           </Link>
         )}
       </div>
@@ -115,7 +131,7 @@ export function MandateCard({ mandate, live, busy, onPay, onCancel, onExpiring }
           </p>
         )}
         {mandate.audit_line && <p className="data mt-3 text-sm break-words text-ink-muted">{mandate.audit_line}</p>}
-        <p className="mt-3 text-ink-muted">Say the item again to get a new total.</p>
+        <p className="mt-3 text-ink-muted">Ask for it again to get a new total.</p>
       </div>
     )
   }
@@ -133,7 +149,7 @@ export function MandateCard({ mandate, live, busy, onPay, onCancel, onExpiring }
   if (mandate.status === 'cancelled') return null
 
   if (mandate.status !== 'proposed') {
-    const words = mandate.status === 'pending' ? 'PayPal is still processing.' : 'This offer closed. Nothing was paid.'
+    const words = mandate.status === 'pending' ? 'PayPal is still processing.' : 'This payment closed. Nothing was paid.'
     return (
       <p className="mt-3 text-ink-muted">
         {mandate.title}, <span className="data">{total}</span>. {words}
@@ -144,8 +160,16 @@ export function MandateCard({ mandate, live, busy, onPay, onCancel, onExpiring }
   return (
     <div className="mt-4 rounded-(--radius-panel) border border-edge border-t-accent bg-surface-1 p-5 [border-top-width:3px]">
       <div className="flex items-start justify-between gap-4">
-        <h2 className="text-xl font-bold">Ready to pay</h2>
-        <Countdown expiresAt={mandate.expires_at} onExpiring={onExpiring} />
+        <h2 className="text-xl font-bold">{expired ? 'Time ran out' : 'Ready to pay'}</h2>
+        <Countdown
+          key={mandate.expires_at}
+          expiresAt={mandate.expires_at}
+          onExpiring={onExpiring}
+          onExpired={() => {
+            setExpiredAt(mandate.expires_at)
+            onExpired(mandate)
+          }}
+        />
       </div>
       <p className="mt-2 text-lg">
         {mandate.title}
@@ -168,24 +192,37 @@ export function MandateCard({ mandate, live, busy, onPay, onCancel, onExpiring }
       <p className="mt-3 text-ink-muted">
         Ships to {mandate.ship_to.line1}, {mandate.ship_to.city}
       </p>
-      <div className="mt-5 grid gap-3 sm:grid-cols-2">
-        <Button size="lg" aria-disabled={busy || undefined} onClick={() => !busy && onPay(mandate)}>
-          Pay {total} to {mandate.merchant}
-        </Button>
-        <Button size="lg" variant="secondary" aria-disabled={busy || undefined} onClick={() => !busy && onCancel(mandate)}>
-          Cancel
-        </Button>
-      </div>
-      <p className="mt-3 text-ink-muted">Or say “pay {mandate.spoken}”.</p>
+      {expired ? (
+        <p className="mt-5 text-lg font-semibold">This payment expired. Nothing was paid. Ask for it again to get a new total.</p>
+      ) : (
+        <>
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+            <Button size="lg" aria-disabled={busy || undefined} onClick={() => !busy && onPay(mandate)}>
+              Pay {total} to {mandate.merchant}
+            </Button>
+            <Button size="lg" variant="secondary" aria-disabled={busy || undefined} onClick={() => !busy && onCancel(mandate)}>
+              Cancel payment
+            </Button>
+          </div>
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+            <p className="text-ink-muted">Or say "pay {mandate.spoken}".</p>
+            <Button variant="quiet" aria-disabled={busy || undefined} onClick={() => !busy && onExtend(mandate)}>
+              More time
+            </Button>
+          </div>
+        </>
+      )}
     </div>
   )
 }
 
-// Seconds left to confirm. Hidden from screen readers; one spoken warning at 30 seconds instead.
-function Countdown({ expiresAt, onExpiring }: { expiresAt: string; onExpiring: () => void }) {
+// Seconds left to pay. Hidden from screen readers: one spoken warning at 30 seconds instead,
+// and one when time runs out.
+function Countdown({ expiresAt, onExpiring, onExpired }: { expiresAt: string; onExpiring: () => void; onExpired: () => void }) {
   const end = new Date(expiresAt).getTime()
   const [now, setNow] = useState(() => Date.now())
   const [warned, setWarned] = useState(false)
+  const [ended, setEnded] = useState(false)
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000)
@@ -199,6 +236,11 @@ function Countdown({ expiresAt, onExpiring }: { expiresAt: string; onExpiring: (
       onExpiring()
     }
   }, [left, warned, onExpiring])
+  useEffect(() => {
+    if (left > 0 || ended) return
+    setEnded(true)
+    onExpired()
+  }, [left, ended, onExpired])
 
   return (
     <span aria-hidden="true" className={cn('data rounded-full border px-3 py-1 text-sm', left <= 30 ? 'border-accent text-accent' : 'border-edge text-ink-muted')}>
@@ -218,7 +260,7 @@ export function OrdersCard({ orders }: { orders: OrderSummary[] }) {
               <p className="font-semibold">{order.title}</p>
               <p className="text-ink-muted">
                 {status.words}
-                {order.is_sample && <span>, sample</span>}
+                {order.is_sample && <span>, sample order</span>}
               </p>
             </div>
             <Link to={`/orders/${order.order_id}`} className="inline-flex min-h-12 items-center font-semibold underline underline-offset-4 hover:text-accent">

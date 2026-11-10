@@ -135,7 +135,7 @@ async function refunded(resource: Resource): Promise<string> {
     },
   })
   await audit(order.accountId, 'webhook.refunded', `WEBHOOK REFUNDED ${fields({ order: shortId(order.id), refund: refundId, capture: captureId })}`)
-  await tellChat(order.conversationId, templates.refundDone(order.totalCents))
+  await tellChat(order.conversationId, templates.refundDone(order.totalCents, order.title))
   return `order ${shortId(order.id)} → refunded`
 }
 

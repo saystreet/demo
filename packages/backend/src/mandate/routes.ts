@@ -1,11 +1,12 @@
-import type { ApiError, PayRequest, TurnResponse } from '@saystreet/shared'
+import type { ApiError, MandateView, PayRequest, TurnResponse } from '@saystreet/shared'
 import { Hono } from 'hono'
 import { type AuthEnv, requireAccount } from '../auth'
 import { respond } from '../conversations/respond'
 import { withChatLock } from '../conversations/routes'
 import { createConversation, findConversation, isUuid } from '../conversations/service'
 import { db } from '../db'
-import { cancelMandate, confirmMandate, MandateNotFound, proposeMandate } from './engine'
+import { cancelMandate, confirmMandate, extendMandate, MandateNotFound, proposeMandate } from './engine'
+import { templates } from '../templates'
 
 export const mandateRoutes = new Hono<AuthEnv>()
 
@@ -30,6 +31,19 @@ mandateRoutes.post('/mandates/:id/cancel', requireAccount, async (c) => {
       return respond(conversationId, { messages: decision.messages, decision, sound: decision.sound })
     }),
   ).then((r) => (r ? c.json<TurnResponse>(r) : c.json<ApiError>({ error: 'not_found' }, 404)))
+})
+
+// POST /api/mandates/:id/extend  "More time" on the payment card: the full window again.
+// 200 with the updated MandateView, or 409 when it's no longer waiting (paid, cancelled, expired).
+mandateRoutes.post('/mandates/:id/extend', requireAccount, async (c) => {
+  if (!isUuid(c.req.param('id'))) return c.json<ApiError>({ error: 'not_found' }, 404)
+  try {
+    const view = await extendMandate(c.var.account, c.req.param('id'))
+    return view ? c.json<MandateView>(view) : c.json<ApiError>({ error: 'not_waiting', say: templates.expired() }, 409)
+  } catch (error) {
+    if (error instanceof MandateNotFound) return c.json<ApiError>({ error: 'not_found' }, 404)
+    throw error
+  }
 })
 
 // POST /api/products/buy { product_id, merchant_domain?, title?, conversation_id? }

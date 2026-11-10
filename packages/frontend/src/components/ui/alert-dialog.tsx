@@ -6,7 +6,11 @@ import { buttonClass } from './button'
 // Radix traps focus, labels the dialog with its title and returns focus on close.
 
 type Props = {
-  trigger: ReactNode
+  trigger?: ReactNode // or control it with open / onOpenChange
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+  // Where focus goes on close when the trigger is gone (a menu item, a deleted row).
+  onCloseAutoFocus?: (event: Event) => void
   title: string
   description: string
   confirm: string
@@ -15,13 +19,15 @@ type Props = {
   onConfirm: () => void
 }
 
-export function ConfirmDialog({ trigger, title, description, confirm, cancel = 'Cancel', danger, onConfirm }: Props) {
+export function ConfirmDialog({ trigger, open, onOpenChange, onCloseAutoFocus, title, description, confirm, cancel = 'Cancel', danger, onConfirm }: Props) {
   return (
-    <Primitive.Root>
-      <Primitive.Trigger asChild>{trigger}</Primitive.Trigger>
+    <Primitive.Root open={open} onOpenChange={onOpenChange}>
+      {trigger && <Primitive.Trigger asChild>{trigger}</Primitive.Trigger>}
       <Primitive.Portal>
         <Primitive.Overlay className="fixed inset-0 z-40 bg-ground/80" />
-        <Primitive.Content className="fixed top-1/2 left-1/2 z-50 w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-(--radius-panel) border border-edge bg-surface-1 p-6 shadow-[0_24px_60px_rgb(0_0_0/0.5)]">
+        <Primitive.Content
+          onCloseAutoFocus={onCloseAutoFocus}
+          className="fixed top-1/2 left-1/2 z-50 w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-(--radius-panel) border border-edge bg-surface-1 p-6 shadow-[0_24px_60px_rgb(0_0_0/0.5)]">
           <Primitive.Title className="text-xl font-bold">{title}</Primitive.Title>
           <Primitive.Description className="mt-2 text-ink-muted">{description}</Primitive.Description>
           <div className="mt-6 flex flex-wrap justify-end gap-3">
