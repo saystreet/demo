@@ -89,6 +89,11 @@ await step('wrong amount is refused, mandate stays', async () => {
   expect(r.sound === 'refused' && r.mandate?.status === 'proposed', spoken(r))
 })
 
+await step('"don\'t pay …" with the amount pays nothing', async () => {
+  const r = await say(`I don't want to pay ${mandateSpoken}`)
+  expect(spoken(r).startsWith('Nothing was paid') && r.mandate?.status !== 'paying', spoken(r))
+})
+
 await step('"yes" asks for the amount', async () => {
   const r = await say('Yes')
   expect(r.mandate?.status === 'proposed' && spoken(r).includes(mandateSpoken), spoken(r))
@@ -147,6 +152,10 @@ await step('price rises after choosing → refused before PayPal', async () => {
   const r = await say(`Pay ${proposed.mandate.spoken}`)
   expect(r.mandate?.reject_reason === 'PRICE_CHANGED', spoken(r))
   expect(r.mandate.audit_line?.includes('no Orders API call'), r.mandate.audit_line ?? 'no audit line')
+  // Asking again quotes the new price instead of the old one being refused again: over the $40
+  // budget here, so it's said plainly.
+  const again = await say('Buy option one')
+  expect(!spoken(again).includes('Price changed') && (again.mandate?.total_cents === r.mandate.live_total_cents || spoken(again).includes('budget')), spoken(again))
   await api('POST', '/api/demo/price-override', { clear: true })
   return r.mandate.audit_line
 })
@@ -156,6 +165,16 @@ await step('cancel', async () => {
   expect(proposed.mandate?.status === 'proposed', `no mandate: ${spoken(proposed)}`)
   const r = await say('Cancel')
   expect(r.mandate?.status === 'cancelled', spoken(r))
+})
+
+await step('return by voice asks first, then "return it" returns', async () => {
+  chat = undefined
+  const asked = await say('Return my French press')
+  expect(/Say "return it" to confirm/.test(spoken(asked)), spoken(asked))
+  const before = await api<{ orders: OrderSummary[] }>('GET', '/api/orders')
+  expect(!before.body.orders.some((o) => o.title.includes('French') && o.fulfillment_status === 'returned'), 'returned before confirming')
+  const done = await say('Return it')
+  expect(spoken(done).includes('marked returned') || spoken(done).includes('refunded'), spoken(done))
 })
 
 await step('settings: bad ZIP refused, good address saved', async () => {

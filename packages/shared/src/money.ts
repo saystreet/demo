@@ -19,6 +19,9 @@ export function speakAmount(cents: Cents): string {
   const rest = cents % 100
   if (dollars === 0) return `${numberToWords(rest)} cent${rest === 1 ? '' : 's'}`
   if (rest === 0) return `${numberToWords(dollars)} dollar${dollars === 1 ? '' : 's'}`
+  // "One hundred ninety-nine" would be heard as $199, so whole hundreds say both units:
+  // 10099 → "one hundred dollars and ninety-nine cents". ("One hundred oh five" is still clear.)
+  if (dollars % 100 === 0 && rest >= 10) return `${numberToWords(dollars)} dollars and ${numberToWords(rest)} cents`
   return `${numberToWords(dollars)} ${rest < 10 ? `oh ${numberToWords(rest)}` : numberToWords(rest)}`
 }
 

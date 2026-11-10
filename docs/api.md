@@ -126,9 +126,9 @@ the one the buttons act on; older mandate cards are history.
 | `POST /api/mandates/:id/extend` | | `MandateView` | 404, 409 `not_waiting` |
 | `GET /api/orders` | | `{ orders: OrderSummary[] }` | Newest first, samples included. |
 | `GET /api/orders/:id` | | `OrderView` | `events` oldest first; `ship_to` is the address at purchase time; `confirmation` is how the payment was approved (amount said or Pay button); `returnable` / `return_by`: delivered, paid, within 30 days. |
-| `POST /api/orders/:id/return` | | `ReturnResponse` | Speak `say`. Real orders refund through PayPal. 409 `not_returnable` with `say` when not delivered yet or past the 30-day window (the voice agent uses the same rule). |
+| `POST /api/orders/:id/return` | | `ReturnResponse` | Speak `say`. Real orders refund through PayPal. 409 `not_returnable` with `say` when not delivered yet, past the 30-day window, or the payment isn't settled (the voice agent uses the same rule). 502 `refund_failed` with `say` when PayPal refuses. By voice, "return it" is asked to confirm first and the next "return it" / "yes" does it. |
 | `POST /api/demo/price-override` | `{ conversation_id?, option_n, delta_cents }` or `{ clear: true }` | `{ ok, title, conversation_id }` | "Raise price of option 1 by $7": `option_n: 1, delta_cents: 700`. Without `conversation_id`: the latest chat with options (409 `no_options` with `say` if none). Only the payment check sees it. |
-| `POST /api/demo/advance-order` | `{ order_id? }` | `AdvanceOrderResponse` | "Ship latest order", then "Mark delivered". Speak `say`. 404/409 when there's nothing to move. |
+| `POST /api/demo/advance-order` | `{ order_id? }` | `AdvanceOrderResponse` | "Ship latest order", then "Mark delivered". Speak `say`. 404/409 `nothing_to_ship` with `say` when there's nothing to move. |
 | `GET /api/audit` | | `{ lines: { line, created_at }[] }` | Engine log for Demo tools, newest first. |
 
 Internal, not for the app: `POST /api/webhooks/paypal` (PayPal) and `/admin/vault` (one-time wallet setup).
@@ -142,8 +142,11 @@ Errors are `ApiError { error, field?, say? }`. If `say` is there, show it and re
 | 400 | `invalid_address`, `invalid_limits`, `empty_text`, … | Bad input; `field` names the form field. |
 | 401 | `signed_out` | No token, bad token, or the account is gone: go to `/start`. |
 | 404 | `not_found` | Doesn't exist or belongs to another account. |
+| 409 | `not_returnable`, `not_waiting`, `nothing_to_ship`, … | Not possible in the current state; `say` explains. |
+| 413 | `body_too_large`, `audio_too_large` | JSON over 64 KB, or a recording over the transcription limit. |
 | 429 | `busy`, `too_many_accounts` | A demo limit was reached. |
-| 502 | `catalog_unavailable`, `transcription_failed` | An outside service failed. |
+| 500 | `server_error` | A bug or the database is down. Comes with `say`. Keep the token: only 401 signs out. |
+| 502 | `catalog_unavailable`, `transcription_failed`, `refund_failed` | An outside service failed. |
 
 When the agent's daily limit is reached, `/api/turn` still answers 200 with the phrase "The demo is
 busy right now…" and `sound: 'error'`.

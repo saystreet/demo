@@ -55,11 +55,27 @@ export async function proposeMandate(input: ProposeInput): Promise<Decision> {
   if (!product) return refusalWithoutMandate(templates.unknownProduct(), 'reply')
 
   const offer = pickOffer(product, input.merchantDomain ?? undefined)
-  const item = offer && offerPriceCents(offer)
-  if (!offer || !item) return refusalWithoutMandate(templates.outOfStock())
+  const storePrice = offer && offerPriceCents(offer)
+  if (!offer || !storePrice) return refusalWithoutMandate(templates.outOfStock())
+  // A price raised with the demo tools reaches the payment check first: the payment quoted at the
+  // old price is refused with "Price changed to …". From then on that new price is what the store
+  // charges, so asking again quotes it and it can be paid (not refused over and over).
+  const override = await db().priceOverride.findUnique({ where: { accountId_productId: { accountId: account.id, productId: product.id } } })
+  const heard =
+    override &&
+    (await db().mandate.findFirst({
+      where: { accountId: account.id, productId: product.id, rejectReason: 'PRICE_CHANGED', liveItemCents: override.itemCents },
+      select: { id: true },
+    }))
+  const item = heard ? override.itemCents : storePrice
 
   const shipping = shippingCents()
   const total = item + shipping
+  // The person's budget for this chat: a total over it is said plainly, never proposed.
+  if (input.budgetCents !== null && total > input.budgetCents) {
+    await audit(account.id, 'mandate.refused', `REFUSED ${fields({ reason: 'OVER_BUDGET', total, budget: input.budgetCents })} → no mandate`)
+    return refusalWithoutMandate(templates.overBudget(total, input.budgetCents))
+  }
   if (total > account.perPurchaseLimitCents) {
     await audit(account.id, 'mandate.refused', `REFUSED ${fields({ reason: 'OVER_LIMIT', total, limit: account.perPurchaseLimitCents })} → no mandate`)
     return refusalWithoutMandate(templates.overLimit(account.perPurchaseLimitCents))
@@ -76,6 +92,9 @@ export async function proposeMandate(input: ProposeInput): Promise<Decision> {
 
   const mandate = await db().$transaction(async (tx) => {
     await lockAccount(tx, account.id)
+    // A payment still on its way to PayPal blocks a new one (and the one_active_mandate index
+    // would refuse it anyway): say so instead of failing.
+    if (await tx.mandate.findFirst({ where: { accountId: account.id, status: 'paying' }, select: { id: true } })) return null
     // A new proposal replaces any waiting one, in any chat.
     await tx.mandate.updateMany({
       where: { accountId: account.id, status: 'proposed' },
@@ -103,6 +122,7 @@ export async function proposeMandate(input: ProposeInput): Promise<Decision> {
       },
     })
   })
+  if (!mandate) return refusalWithoutMandate(templates.paymentInFlight(), 'reply')
   await audit(account.id, 'mandate.proposed', `PROPOSED ${fields({ mandate: shortId(mandate.id), total, merchant: domain })}`, { mandateId: mandate.id })
 
   const view = toMandateView(mandate)
@@ -144,12 +164,9 @@ export async function confirmMandate(
   const mandate = await db().mandate.findFirst({ where: { id: mandateId, accountId: account.id } })
   if (!mandate) throw new MandateNotFound()
 
-  // 1. Already paid or being paid: never a second payment.
-  if (mandate.status === 'paid' || mandate.status === 'paying' || mandate.status === 'pending') {
-    return say(mandate, templates.alreadyPaid(), 'reply')
-  }
-  // 2. Still waiting and not expired.
-  if (mandate.status !== 'proposed') return say(mandate, templates.expired(), 'refused')
+  // 1–2. Still waiting and not expired. Anything else (paid, being paid, expired, cancelled) is
+  // said as it is, and never becomes a second payment.
+  if (mandate.status !== 'proposed') return say(mandate, statusPhrase(mandate), mandate.status === 'paid' ? 'reply' : 'refused')
 
   // 3–4. The person said the exact total. The mandate stays open so they can try again.
   if (heardCents === null) {
@@ -175,9 +192,10 @@ export async function confirmMandate(
       if (!(error instanceof CatalogUnavailable)) throw error
       return reject(account, mandate, 'PRICE_UNAVAILABLE', { heardCents, method })
     }
-    const offer = product?.offers.find((o) => normalizeDomain(o.domain) === mandate.offerDomain)
+    // The same offer the proposal quoted: the cheapest new, in-stock one at that store.
+    const offer = product ? pickOffer(product, mandate.offerDomain) : null
     const price = offer ? offerPriceCents(offer) : null
-    if (!offer || offer.availability !== 'InStock' || !price) return reject(account, mandate, 'OUT_OF_STOCK', { heardCents, method })
+    if (!offer || !price) return reject(account, mandate, 'OUT_OF_STOCK', { heardCents, method })
     liveItem = price
   }
   if (liveItem !== mandate.itemCents) return reject(account, mandate, 'PRICE_CHANGED', { heardCents, method, liveItem })
@@ -195,14 +213,17 @@ export async function confirmMandate(
     }
     const { count } = await tx.mandate.updateMany({
       where: { id: mandate.id, status: 'proposed' },
-      data: { status: 'paying', heardCents, confirmMethod: method, liveItemCents: liveItem },
+      // decidedAt marks when "paying" began, so a payment cut off by a restart can be found later.
+      data: { status: 'paying', heardCents, confirmMethod: method, liveItemCents: liveItem, decidedAt: new Date() },
     })
     return { outcome: count === 1 ? ('paying' as const) : ('taken' as const) }
   })
-  if (locked.outcome === 'taken') return say(mandate, templates.alreadyPaid(), 'reply')
-  if (locked.outcome === 'expired') {
-    await expireStale(account.id)
-    return say(mandate, templates.expired(), 'refused')
+  // Someone else moved it on (the other tab paid, a new proposal cancelled it) or it ran out
+  // during the price check: answer from the row as it is now, so the card never shows a stale "proposed".
+  if (locked.outcome === 'taken' || locked.outcome === 'expired') {
+    if (locked.outcome === 'expired') await expireStale(account.id)
+    const now = await db().mandate.findUniqueOrThrow({ where: { id: mandate.id } })
+    return say(now, statusPhrase(now), now.status === 'paid' ? 'reply' : 'refused')
   }
   if (locked.outcome !== 'paying') return reject(account, mandate, locked.outcome, { heardCents, method, liveItem })
 
@@ -216,6 +237,9 @@ async function pay(account: Account, mandate: Mandate): Promise<Decision> {
 
   let result: OrderResult | null = null
   let error: unknown = null
+  // Once an attempt may have reached PayPal without an answer (timeout, 5xx), a later refusal
+  // doesn't prove nothing was paid: the first one may have captured. Then the outcome is unknown.
+  let unclear = false
   for (let attempt = 0; attempt < 2 && !result; attempt++) {
     try {
       result = await createVaultedOrder({
@@ -229,13 +253,15 @@ async function pay(account: Account, mandate: Mandate): Promise<Decision> {
       })
     } catch (caught) {
       error = caught
-      // A 4xx is a real answer from PayPal; only retry timeouts and 5xx (same request id, no double charge).
-      if (caught instanceof PayPalError && caught.status < 500) break
+      // A 4xx is a real answer from PayPal; only retry timeouts, 5xx, 429 and an expired token
+      // (the client drops it on 401). Same request id, so a retry can't charge twice.
+      if (caught instanceof PayPalError && caught.status < 500 && caught.status !== 429 && caught.status !== 401) break
+      if (!(caught instanceof PayPalError) || caught.status >= 500) unclear = true
     }
   }
 
   if (!result) {
-    if (error instanceof PayPalError && error.status < 500) {
+    if (!unclear && error instanceof PayPalError && error.status < 500) {
       return finish(account, mandate, 'failed', null, templates.failed(), `PAYPAL_${error.status}`)
     }
     // Unknown outcome: keep it pending, the webhook settles it. Never pay again.
@@ -255,15 +281,28 @@ async function finish(
   phrase: string | null,
   reason: string | null,
 ): Promise<Decision> {
-  const updated = await db().mandate.update({ where: { id: mandate.id }, data: { status, decidedAt: new Date() } })
-  const order =
-    result && status !== 'failed'
-      ? await createOrderFromPayment(updated, mandate.offerDomain, {
-          paypalOrderId: result.orderId,
-          captureId: result.captureId,
-          status,
-        })
-      : null
+  // The mandate and its order are written together, so a crash can't leave a paid mandate with no
+  // order. If a webhook got there first (it recovered the payment and made the order), its order
+  // stands and nothing is made twice.
+  const { updated, order } = await db().$transaction(async (tx) => {
+    await lockAccount(tx, account.id)
+    const existing = await tx.order.findUnique({ where: { mandateId: mandate.id }, include: { events: { orderBy: { createdAt: 'asc' } } } })
+    const current = await tx.mandate.findUniqueOrThrow({ where: { id: mandate.id } })
+    if (existing || (current.status !== 'paying' && current.status !== 'pending')) return { updated: current, order: existing }
+    const updated = await tx.mandate.update({ where: { id: mandate.id }, data: { status, decidedAt: new Date() } })
+    const order =
+      result && status !== 'failed'
+        ? await createOrderFromPayment(updated, mandate.offerDomain, { paypalOrderId: result.orderId, captureId: result.captureId, status }, tx)
+        : null
+    return { updated, order }
+  })
+
+  // What the payment came to: ours, or what the webhook settled first.
+  const settled = updated.status === 'paid' || updated.status === 'pending' || updated.status === 'failed' ? updated.status : status
+  if (settled !== status) {
+    status = settled
+    phrase = settled === 'paid' ? null : settled === 'pending' ? templates.pending() : templates.failed()
+  }
 
   const line =
     status === 'failed'
@@ -288,10 +327,7 @@ export async function cancelMandate(account: Account, mandateId: string): Promis
   await expireStale(account.id)
   const mandate = await db().mandate.findFirst({ where: { id: mandateId, accountId: account.id } })
   if (!mandate) throw new MandateNotFound()
-  if (mandate.status !== 'proposed') {
-    const paidAlready = mandate.status === 'paid' || mandate.status === 'paying' || mandate.status === 'pending'
-    return say(mandate, paidAlready ? templates.alreadyPaid() : templates.cancelled(), 'cancelled')
-  }
+  if (mandate.status !== 'proposed') return say(mandate, statusPhrase(mandate), mandate.status === 'cancelled' ? 'cancelled' : 'reply')
   const updated = await db().mandate.update({
     where: { id: mandate.id },
     data: { status: 'cancelled', rejectReason: 'CANCELLED', decidedAt: new Date() },
@@ -320,12 +356,32 @@ export async function extendMandate(account: Account, mandateId: string): Promis
   return toMandateView(mandate)
 }
 
-// No timer: every request first turns overdue proposals into "expired".
+// No timer: every request first turns overdue proposals into "expired", and payments cut off
+// mid-way into "pending".
 export async function expireStale(accountId: string): Promise<void> {
   await db().mandate.updateMany({
     where: { accountId, status: 'proposed', expiresAt: { lte: new Date() } },
     data: { status: 'expired', rejectReason: 'EXPIRED', decidedAt: new Date() },
   })
+  await releaseStuckPayments({ accountId })
+}
+
+// The PayPal call takes at most two attempts of 15 seconds. A mandate still "paying" well after
+// that lost its process (a deploy, a crash) before it heard back. It becomes "pending": the
+// outcome is unknown, PayPal's webhook settles it (webhooks/process.ts recovers it by
+// reference_id), it still counts against the weekly limit, and the account can buy again.
+const STUCK_MS = 2 * 60 * 1000
+
+export async function releaseStuckPayments(where: { accountId?: string; id?: string } = {}): Promise<number> {
+  const stuck = await db().mandate.findMany({
+    where: { ...where, status: 'paying', decidedAt: { lte: new Date(Date.now() - STUCK_MS) } },
+    select: { id: true, accountId: true },
+  })
+  for (const m of stuck) {
+    const { count } = await db().mandate.updateMany({ where: { id: m.id, status: 'paying' }, data: { status: 'pending' } })
+    if (count) await audit(m.accountId, 'mandate.pending', `PENDING ${fields({ mandate: shortId(m.id), reason: 'PAYING_INTERRUPTED' })} → waiting for the PayPal webhook`, { mandateId: m.id })
+  }
+  return stuck.length
 }
 
 // The proposal waiting in this chat, if any.
@@ -397,6 +453,23 @@ function say(mandate: Mandate, text: string, sound: Sound, withCard = false): De
     order: null,
     sound,
     messages: [{ role: 'system', source: 'system', text, attachment: withCard ? { kind: 'mandate', mandate: view } : null }],
+  }
+}
+
+// What a mandate that is no longer waiting means for the money, said plainly.
+function statusPhrase(mandate: Mandate): string {
+  switch (mandate.status) {
+    case 'paid':
+      return templates.alreadyPaid()
+    case 'paying':
+    case 'pending':
+      return templates.pending()
+    case 'cancelled':
+      return templates.cancelled()
+    case 'expired':
+      return templates.expired()
+    default:
+      return templates.notPaid()
   }
 }
 

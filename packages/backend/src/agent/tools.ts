@@ -5,8 +5,8 @@ import type { NewMessage } from '../conversations/service'
 import type { Account } from '../db'
 import { type Decision, proposeMandate } from '../mandate/engine'
 import { db } from '../db'
-import { returnWindow, toOrderSummary } from '../orders/service'
-import { refundOrder, resolveForReturn, resolveForTracking, type Resolved, statusWords, trackingPhrase } from '../orders/tracking'
+import { canReturn, toOrderSummary } from '../orders/service'
+import { askToReturn, resolveForReturn, returnRefusal, resolveForTracking, type Resolved, statusWords, trackingPhrase } from '../orders/tracking'
 import { templates } from '../templates'
 
 // The agent's tools. Strict mode: every field is required, optional ones are nullable.
@@ -290,21 +290,24 @@ async function requestReturn(args: Record<string, unknown>, state: ToolState): P
   const unresolved = whenUnresolved(resolved, state)
   if (unresolved) return unresolved
   const order = (resolved as Extract<Resolved, { order: unknown }>).order
-  // The order page's rule: not here yet, or past the return window, means nothing to send back.
-  if (order.paymentStatus === 'paid' && order.fulfillmentStatus !== 'returned' && !returnWindow(order).returnable) {
-    const delivered = order.fulfillmentStatus === 'delivered'
-    state.messages.push({ role: 'system', source: 'system', text: delivered ? templates.returnWindowClosed(order.title) : templates.notDeliveredYet(order.title) })
-    return { output: JSON.stringify({ error: delivered ? 'RETURN_WINDOW_CLOSED' : 'NOT_DELIVERED' }), terminal: true }
+  // The order page's rule: not here yet, past the return window, unpaid or already back means
+  // nothing to send back.
+  const check = canReturn(order)
+  if (check !== 'ok') {
+    state.messages.push({ role: 'system', source: 'system', text: returnRefusal(order, check) })
+    return { output: JSON.stringify({ error: check.toUpperCase() }), terminal: true }
   }
+  // Nothing is refunded yet: the server asks, and the person's next words confirm it in plain code
+  // (conversations/routes.ts), never the model.
   state.title ??= `Return: ${order.title}`
-  const result = await refundOrder(order)
+  askToReturn(state.account.id, state.conversationId, order.id)
   state.messages.push({
     role: 'system',
     source: 'system',
-    text: result.phrase,
-    attachment: { kind: 'orders', orders: [toOrderSummary(result.order)] },
+    text: templates.confirmReturn(order.title, order.totalCents, order.isSample),
+    attachment: { kind: 'orders', orders: [toOrderSummary(order)] },
   })
-  return { output: JSON.stringify({ order_id: result.order.id, result: result.status }), terminal: true }
+  return { output: JSON.stringify({ order_id: order.id, result: 'ASKED_TO_CONFIRM' }), terminal: true }
 }
 
 // No order: the server says so. Several: the model asks which one, by title.

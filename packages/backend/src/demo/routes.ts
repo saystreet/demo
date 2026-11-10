@@ -8,6 +8,7 @@ import { Prisma } from '../generated/prisma/client'
 import { findOrder, toOrderView } from '../orders/service'
 import { advanceOrder, latestOpenOrder } from '../orders/shipping'
 import { templates } from '../templates'
+import { jsonBody } from '../http'
 
 // Demo tools: let a judge make the store's price change between choosing and paying,
 // move an order through delivery, and see the engine's log. Each account only affects itself.
@@ -18,12 +19,11 @@ export const demoRoutes = new Hono<AuthEnv>()
 //   { conversation_id?, option_n: 1 | 2 | 3, delta_cents }  "Raise price of option 1 by $7"
 //     Without conversation_id: the most recent chat that has options (the button lives in Settings).
 //   { clear: true }                                         "Clear price changes"
-// Only the payment-time price check sees the new price, so the change happens "after choosing".
+// The payment-time price check sees the new price, so a waiting payment is refused ("Price
+// changed"). Asking again quotes the new price, and that one can be paid.
 demoRoutes.post('/demo/price-override', requireAccount, async (c) => {
   const account = c.var.account
-  const body = await c.req
-    .json<{ clear?: unknown; conversation_id?: unknown; option_n?: unknown; delta_cents?: unknown }>()
-    .catch(() => ({}) as Record<string, unknown>)
+  const body = await jsonBody<{ clear?: unknown; conversation_id?: unknown; option_n?: unknown; delta_cents?: unknown }>(c)
 
   if (body.clear === true) {
     await db().priceOverride.deleteMany({ where: { accountId: account.id } })
@@ -47,7 +47,12 @@ demoRoutes.post('/demo/price-override', requireAccount, async (c) => {
   const delta = typeof body.delta_cents === 'number' && Number.isInteger(body.delta_cents) ? body.delta_cents : null
   if (delta === null || delta === 0 || Math.abs(delta) > 100_000) return c.json<ApiError>({ error: 'invalid_delta' }, 400)
 
-  const itemCents = Math.max(1, option.item_cents + delta)
+  // From the price the person was quoted: a waiting payment's, else the search's.
+  const waiting = await db().mandate.findFirst({
+    where: { accountId: account.id, conversationId: conversation.id, productId: option.product_id, status: 'proposed' },
+    select: { itemCents: true },
+  })
+  const itemCents = Math.max(1, (waiting?.itemCents ?? option.item_cents) + delta)
   await db().priceOverride.upsert({
     where: { accountId_productId: { accountId: account.id, productId: option.product_id } },
     create: { accountId: account.id, productId: option.product_id, itemCents },
@@ -61,12 +66,12 @@ demoRoutes.post('/demo/price-override', requireAccount, async (c) => {
 // Without order_id: the newest real purchase that isn't delivered yet.
 demoRoutes.post('/demo/advance-order', requireAccount, async (c) => {
   const account = c.var.account
-  const body = await c.req.json<{ order_id?: unknown }>().catch(() => ({}) as { order_id?: unknown })
+  const body = await jsonBody<{ order_id?: unknown }>(c)
   const order =
     typeof body.order_id === 'string' ? await findOrder(account.id, body.order_id) : await latestOpenOrder(account.id)
-  if (!order) return c.json<AdvanceOrderResponse>({ order: null, step: null, say: templates.nothingToShip() }, 404)
+  if (!order) return c.json<ApiError>({ error: 'nothing_to_ship', say: templates.nothingToShip() }, 404)
   const result = await advanceOrder(order)
-  if (!result) return c.json<AdvanceOrderResponse>({ order: toOrderView(order), step: null, say: templates.nothingToShip() }, 409)
+  if (!result) return c.json<ApiError>({ error: 'nothing_to_ship', say: templates.nothingToShip() }, 409)
   return c.json<AdvanceOrderResponse>({ order: toOrderView(result.order), step: result.step, say: result.say })
 })
 

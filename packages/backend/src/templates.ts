@@ -1,4 +1,4 @@
-import { formatUSD, type OptionCard } from '@saystreet/shared'
+import { formatUSD, type OptionCard, RETURN_DAYS } from '@saystreet/shared'
 
 // Every fixed phrase the server says (spec section 13). Anything about money is said here,
 // never by the model. Amounts always go through formatUSD.
@@ -38,11 +38,14 @@ export const templates = {
     budgetCents !== null && liveTotalCents > budgetCents
       ? `Price changed to ${formatUSD(liveTotalCents)}. That's over your ${formatUSD(budgetCents)}. Nothing was paid.`
       : `Price changed to ${formatUSD(liveTotalCents)}. Nothing was paid. Ask for it again to get a new total.`,
+  overBudget: (totalCents: number, budgetCents: number) =>
+    `It's ${formatUSD(totalCents)} with shipping now, over your ${formatUSD(budgetCents)} budget. Nothing was paid.`,
   overLimit: (limitCents: number) => `That's over your ${formatUSD(limitCents)} limit per purchase. Nothing was paid.`,
   overWeeklyLimit: (limitCents: number) => `That would go over your ${formatUSD(limitCents)} weekly limit. Nothing was paid.`,
   amountMismatch: (heardCents: number, totalCents: number) =>
     `I heard ${formatUSD(heardCents)}, but the total is ${formatUSD(totalCents)}. Nothing was paid.`,
   amountMissing: (spoken: string) => `To pay, say the amount: "pay ${spoken}". Or use the Pay button.`,
+  notConfirmed: (spoken: string) => `Nothing was paid. To pay, say only "pay ${spoken}". To stop, say cancel.`,
   expired: () => 'This payment expired. Nothing was paid. Ask for it again to get a new total.',
   cancelled: () => 'Cancelled. Nothing was paid.',
   outOfStock: () => "It's out of stock now. Nothing was paid.",
@@ -53,6 +56,9 @@ export const templates = {
   failed: () => 'PayPal declined the payment. Nothing was paid.',
   walletMissing: () => "PayPal isn't connected for this demo yet. Nothing was paid.",
   alreadyPaid: () => "That's already paid.",
+  notPaid: () => "That payment didn't go through. Nothing was paid. Ask for it again to get a new total.",
+  paymentInFlight: () => "A payment is still going through. I'll tell you when PayPal answers, then you can buy something else.",
+  nothingToPay: () => 'No payment is waiting, so nothing was paid. Ask for the item again to get a new total.',
 
   // Orders and delivery.
   tracking: (o: { title: string; statusWords: string; carrier: string | null; trackingLast4: string | null; etaWeekday: string | null }) => {
@@ -76,8 +82,15 @@ export const templates = {
   sampleReturned: (title: string) => `Your ${title} is marked returned. It was a sample order, so no money moved.`,
   alreadyRefunded: () => 'That order is already refunded.',
   notDeliveredYet: (title: string) => `Your ${title} hasn't arrived yet. You can return it once it's delivered.`,
-  returnWindowClosed: (title: string) => `The return window for your ${title} has closed. Returns are open for 30 days after delivery.`,
+  returnWindowClosed: (title: string) => `The return window for your ${title} has closed. Returns are open for ${RETURN_DAYS} days after delivery.`,
   aboutOrder: (title: string) => `This chat is about your ${title}. Ask where it is, or say "return it".`,
+  confirmReturn: (title: string, totalCents: number, isSample: boolean) =>
+    isSample
+      ? `Return the ${title}? It's a sample order, so no money moves. Say "return it" to confirm, or cancel.`
+      : `Return the ${title} and refund ${formatUSD(totalCents)} to your PayPal? Say "return it" to confirm, or cancel.`,
+  returnKept: (title: string) => `OK, I won't return the ${title}. Nothing changed.`,
+  returnPaymentPending: (title: string) => `PayPal is still processing the payment for your ${title}. You can return it once it's paid and delivered.`,
+  returnNotPaid: (title: string) => `Your ${title} wasn't paid, so there's nothing to refund.`,
   refundFailed: () => "PayPal didn't accept the refund. Nothing changed. Try again in a moment.",
 
   notHeard: () => "I didn't catch that. Try again.",

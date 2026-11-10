@@ -33,11 +33,16 @@ export const requireAccount = createMiddleware<AuthEnv>(async (c, next) => {
   const header = c.req.header('Authorization') ?? ''
   const token = header.startsWith('Bearer ') ? header.slice('Bearer '.length).trim() : ''
   const id = token ? verifyToken(token) : null
-  const account =
-    id && UUID.test(id)
-      ? await db().account.update({ where: { id }, data: { lastSeenAt: new Date() } }).catch(() => null)
-      : null
+  // Only a missing account signs the person out. A database error (timeout, restart) throws and
+  // becomes a 500: the frontend keeps the token on a 500, so the demo account isn't lost.
+  const account = id && UUID.test(id) ? await db().account.findUnique({ where: { id } }) : null
   if (!account) return c.json<ApiError>({ error: 'signed_out' }, 401)
+  // "Last seen" at most once a minute, not on every request (orders poll every few seconds).
+  if (Date.now() - account.lastSeenAt.getTime() > 60_000) {
+    await db()
+      .account.update({ where: { id: account.id }, data: { lastSeenAt: new Date() } })
+      .catch((error) => console.error('lastSeenAt update failed', error))
+  }
   c.set('account', account)
   await next()
 })

@@ -6,7 +6,9 @@ import { env, requireEnv } from '../env'
 const KEYWORDS = ['pay', 'cancel', 'repeat', 'dollars', 'cents', 'option one', 'option two', 'option three']
 // Used if the main model is unavailable.
 const FALLBACK_MODEL = 'gpt-4o-mini-transcribe'
-const PROMPT = 'Shopping by voice. Pay, cancel, dollars, cents, thirty-nine ninety-nine.'
+// No amount in the prompt: a model that hears silence can echo its prompt, and an echoed amount
+// would read as consent. The words alone are enough to steer it.
+const PROMPT = 'Shopping by voice. Pay, cancel, repeat, dollars, cents.'
 
 let client: OpenAI | null = null
 function openai(): OpenAI {

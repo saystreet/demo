@@ -4,16 +4,20 @@ import { serve } from '@hono/node-server'
 import { serveStatic } from '@hono/node-server/serve-static'
 import type { Health } from '@saystreet/shared'
 import { type Context, Hono } from 'hono'
+import { bodyLimit } from 'hono/body-limit'
 import { compress } from 'hono/compress'
+import { secureHeaders } from 'hono/secure-headers'
 import { accountRoutes } from './account/routes'
 import { adminVault } from './admin/vault'
 import { catalogRoutes } from './catalog/routes'
 import { conversationRoutes } from './conversations/routes'
 import { demoRoutes } from './demo/routes'
 import { port } from './env'
+import { releaseStuckPayments } from './mandate/engine'
 import { mandateRoutes } from './mandate/routes'
 import { orderRoutes } from './orders/routes'
 import { speechRoutes } from './speech/routes'
+import { templates } from './templates'
 import { paypalWebhook } from './webhooks/paypal'
 
 // The built frontend. The path is the same from src/ (dev) and dist/ (prod).
@@ -32,9 +36,17 @@ app.use('*', async (c, next) => {
   c.header('X-Robots-Tag', 'noindex, nofollow')
 })
 
+// Standard protections: no framing (so no page can lay a hidden Pay button under a click),
+// no MIME sniffing, a strict referrer, same-origin resources.
+app.use('*', secureHeaders({ xFrameOptions: 'DENY' }))
+
 app.get('/health', (c) => c.json<Health>({ ok: true }))
 
 const api = new Hono()
+// JSON bodies are small (the longest is a 500-character turn). /transcribe takes audio and sets
+// its own limit after checking the token.
+const smallBody = bodyLimit({ maxSize: 64 * 1024, onError: (c) => c.json({ error: 'body_too_large' }, 413) })
+api.use('*', (c, next) => (c.req.path.endsWith('/transcribe') ? next() : smallBody(c, next)))
 api.route('/', accountRoutes)
 api.route('/webhooks/paypal', paypalWebhook)
 api.route('/', catalogRoutes)
@@ -46,7 +58,8 @@ api.route('/', speechRoutes)
 api.all('*', (c) => c.json({ error: 'not_found' }, 404))
 api.onError((error, c) => {
   console.error(error)
-  return c.json({ error: 'server_error' }, 500)
+  // Said aloud too: in a voice app a silent failure is no answer at all.
+  return c.json({ error: 'server_error', say: templates.error() }, 500)
 })
 app.route('/api', api)
 
@@ -61,8 +74,24 @@ const cacheFor = (path: string, c: Context) => {
   else c.header('Cache-Control', 'public, max-age=86400')
 }
 app.use('*', serveStatic({ root: frontendDist, onFound: cacheFor }))
+// A hashed file that isn't here (an old tab asking for a chunk from before a deploy) is a 404, not
+// index.html: the browser then fails the import cleanly and the app's error page can reload.
+app.get('/assets/*', (c) => c.text('Not found', 404))
 app.get('*', serveStatic({ root: frontendDist, path: 'index.html', onFound: cacheFor }))
 
-serve({ fetch: app.fetch, port }, (info) => {
+const server = serve({ fetch: app.fetch, port }, (info) => {
   console.log(`SayStreet backend on http://localhost:${info.port}`)
+  // Payments cut off by the previous process (a deploy mid-payment) become "pending" now, not
+  // when their account next shows up. Without a database (first local run) there's nothing to do.
+  releaseStuckPayments()
+    .then((n) => n && console.log(`Released ${n} payment(s) interrupted by a restart`))
+    .catch((error) => console.error('Releasing interrupted payments failed', error))
+})
+
+// A deploy sends SIGTERM: stop taking requests and let the ones in flight (a PayPal call can take
+// 30 seconds) finish, so a payment is rarely cut off in the first place.
+process.on('SIGTERM', () => {
+  console.log('SIGTERM: finishing requests in flight')
+  server.close(() => process.exit(0))
+  setTimeout(() => process.exit(0), 40_000).unref()
 })

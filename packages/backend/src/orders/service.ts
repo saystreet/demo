@@ -25,6 +25,18 @@ export function returnWindow(order: Order & { events?: OrderEvent[] }, now = new
   return { returnable, returnBy }
 }
 
+// Whether "return it" can go ahead, and if not, why: the same answer for the order page's button
+// and the voice agent.
+export type ReturnCheck = 'ok' | 'already' | 'payment_pending' | 'not_paid' | 'not_delivered' | 'window_closed'
+
+export function canReturn(order: Order & { events?: OrderEvent[] }, now = new Date()): ReturnCheck {
+  if (order.paymentStatus === 'refunded' || order.paymentStatus === 'refund_pending' || order.fulfillmentStatus === 'returned') return 'already'
+  if (order.paymentStatus === 'pending') return 'payment_pending'
+  if (order.paymentStatus !== 'paid') return 'not_paid'
+  if (order.fulfillmentStatus !== 'delivered') return 'not_delivered'
+  return returnWindow(order, now).returnable ? 'ok' : 'window_closed'
+}
+
 const iso = (date: Date | null) => (date ? date.toISOString() : null)
 
 // Delivery date: DELIVERY_DAYS business days after the order (spec 7.5). Dates are UTC.
@@ -48,10 +60,11 @@ export async function createOrderFromPayment(
   mandate: Mandate,
   merchantDomain: string,
   payment: { paypalOrderId: string; captureId: string | null; status: 'paid' | 'pending' },
+  client: Pick<ReturnType<typeof db>, 'order'> = db(),
 ): Promise<OrderWithEvents> {
   const now = new Date()
   const id = randomUUID()
-  return db().order.create({
+  return client.order.create({
     data: {
       id,
       accountId: mandate.accountId,
@@ -91,17 +104,20 @@ export async function createOrderFromPayment(
 }
 
 // Paid or pending real purchases in the last 7 days. Sample and refunded orders don't count.
-export async function spentThisWeek(accountId: string, client: Pick<ReturnType<typeof db>, 'order'> = db()): Promise<number> {
-  const result = await client.order.aggregate({
+// Neither does nothing: a payment still going through, or one whose answer PayPal never gave us
+// (a mandate "paying" or "pending" with no order yet), may well have taken the money, so it counts.
+export async function spentThisWeek(accountId: string, client: Pick<ReturnType<typeof db>, 'order' | 'mandate'> = db()): Promise<number> {
+  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+  // One after the other: this also runs inside the payment transaction, which takes one query at a time.
+  const orders = await client.order.aggregate({
     _sum: { totalCents: true },
-    where: {
-      accountId,
-      isSample: false,
-      paymentStatus: { in: ['paid', 'pending'] },
-      createdAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
-    },
+    where: { accountId, isSample: false, paymentStatus: { in: ['paid', 'pending'] }, createdAt: { gte: since } },
   })
-  return result._sum.totalCents ?? 0
+  const unsettled = await client.mandate.aggregate({
+    _sum: { totalCents: true },
+    where: { accountId, status: { in: ['paying', 'pending', 'paid'] }, order: { is: null }, createdAt: { gte: since } },
+  })
+  return (orders._sum.totalCents ?? 0) + (unsettled._sum.totalCents ?? 0)
 }
 
 export async function listOrders(accountId: string): Promise<OrderSummary[]> {

@@ -46,12 +46,14 @@ function windowStart(window: Window, now = new Date()): Date {
   return start
 }
 
-// The person's IP: Cloudflare's header if the domain is proxied, else the first address Render
-// puts in X-Forwarded-For, else the socket.
+// The person's IP. On Render every request comes through Cloudflare, which sets CF-Connecting-IP
+// itself (a value the client sends is replaced), so it can't be forged. Without Cloudflare (local
+// runs), the last X-Forwarded-For entry is the one our own proxy appended; the first ones are
+// whatever the client wrote, so they're never trusted. Else the socket.
 export function clientIp(c: Context): string {
   const cf = c.req.header('cf-connecting-ip')
   if (cf) return cf.trim()
-  const forwarded = c.req.header('x-forwarded-for')?.split(',')[0]?.trim()
+  const forwarded = c.req.header('x-forwarded-for')?.split(',').at(-1)?.trim()
   if (forwarded) return forwarded
   try {
     return getConnInfo(c).remote.address ?? 'unknown'

@@ -1,16 +1,18 @@
 import { randomUUID } from 'node:crypto'
+import { normalize } from '../amount/parse'
 import { audit, fields, shortId } from '../audit'
 import { db } from '../db'
 import type { Order } from '../generated/prisma/client'
 import { PayPalError, refundCapture } from '../paypal'
 import { templates } from '../templates'
-import { findOrder, type OrderWithEvents, weekday } from './service'
+import { findOrder, type OrderWithEvents, type ReturnCheck, weekday } from './service'
 
 // "Where is it?" and "return it": finding the order the person means, saying where it is,
 // refunding it. Real orders are refunded through PayPal; sample orders only in our database.
 
 export function statusWords(order: Order): string {
   if (order.paymentStatus === 'pending') return 'waiting for PayPal'
+  if (order.paymentStatus === 'failed') return 'not paid: PayPal declined it'
   if (order.paymentStatus === 'refund_pending') return 'being refunded'
   switch (order.fulfillmentStatus) {
     case 'processing':
@@ -80,6 +82,46 @@ async function resolve(
   return order ? { order } : { error: 'NO_ORDER' }
 }
 
+// What to say when an order can't be returned (canReturn's reason).
+export function returnRefusal(order: Order, check: Exclude<ReturnCheck, 'ok'>): string {
+  switch (check) {
+    case 'already':
+      return templates.alreadyRefunded()
+    case 'payment_pending':
+      return templates.returnPaymentPending(order.title)
+    case 'not_paid':
+      return templates.returnNotPaid(order.title)
+    case 'not_delivered':
+      return templates.notDeliveredYet(order.title)
+    case 'window_closed':
+      return templates.returnWindowClosed(order.title)
+  }
+}
+
+// "Return it" by voice is confirmed in plain code, like a payment: the agent's request_return only
+// asks, and the person's next words ("return it", "yes") are matched here, never by the model.
+// Kept in memory for two minutes: lost on a restart, which only means asking again.
+const RETURN_TTL_MS = 2 * 60 * 1000
+const pendingReturns = new Map<string, { accountId: string; orderId: string; until: number }>()
+
+export function askToReturn(accountId: string, conversationId: string, orderId: string) {
+  pendingReturns.set(conversationId, { accountId, orderId, until: Date.now() + RETURN_TTL_MS })
+}
+
+// The order waiting for "return it" in this chat, taken (so it's asked once), or null.
+export function takePendingReturn(accountId: string, conversationId: string): string | null {
+  const pending = pendingReturns.get(conversationId)
+  pendingReturns.delete(conversationId)
+  for (const [id, p] of pendingReturns) if (p.until < Date.now()) pendingReturns.delete(id)
+  return pending && pending.accountId === accountId && pending.until >= Date.now() ? pending.orderId : null
+}
+
+const RETURN_YES = new Set(['return it', 'yes return it', 'yes', 'yes please', 'yeah', 'yep', 'confirm', 'do it', 'go ahead', 'ok', 'okay', 'return', 'yes return', 'ok return it', 'okay return it', 'please return it', 'return it please', 'sure'])
+
+export function isReturnConfirmation(text: string): boolean {
+  return RETURN_YES.has(normalize(text))
+}
+
 export type RefundResult =
   | { status: 'done' | 'started'; order: OrderWithEvents; phrase: string }
   | { status: 'already'; order: OrderWithEvents; phrase: string }
@@ -119,18 +161,22 @@ async function markRefunded(
   note: string | null,
 ): Promise<OrderWithEvents> {
   const now = new Date()
-  const events = [{ id: randomUUID(), status: 'return_started', createdAt: now, note: null as string | null }]
-  if (paymentStatus === 'refunded') events.push({ id: randomUUID(), status: 'refunded', createdAt: new Date(now.getTime() + 1), note })
-  return db().order.update({
-    where: { id: order.id },
-    data: {
-      paymentStatus,
-      fulfillmentStatus: paymentStatus === 'refunded' ? 'returned' : order.fulfillmentStatus,
-      refundId,
-      refundedAt: paymentStatus === 'refunded' ? now : null,
-      events: { create: events },
-    },
-    include: { events: { orderBy: { createdAt: 'asc' } } },
+  const events = [{ id: randomUUID(), orderId: order.id, status: 'return_started', createdAt: now, note: null as string | null }]
+  if (paymentStatus === 'refunded') events.push({ id: randomUUID(), orderId: order.id, status: 'refunded', createdAt: new Date(now.getTime() + 1), note })
+  return db().$transaction(async (tx) => {
+    // Only from "paid": if the refund webhook (or a second tap) settled it first, that stands, and
+    // the order is never moved back from "refunded" to "refund_pending".
+    const { count } = await tx.order.updateMany({
+      where: { id: order.id, paymentStatus: 'paid' },
+      data: {
+        paymentStatus,
+        fulfillmentStatus: paymentStatus === 'refunded' ? 'returned' : order.fulfillmentStatus,
+        refundId,
+        refundedAt: paymentStatus === 'refunded' ? now : null,
+      },
+    })
+    if (count === 1) await tx.orderEvent.createMany({ data: events })
+    return tx.order.findUniqueOrThrow({ where: { id: order.id }, include: { events: { orderBy: { createdAt: 'asc' } } } })
   })
 }
 

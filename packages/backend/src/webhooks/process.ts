@@ -3,6 +3,7 @@ import { audit, fields, shortId } from '../audit'
 import { addMessages } from '../conversations/service'
 import { db } from '../db'
 import type { Order } from '../generated/prisma/client'
+import { releaseStuckPayments } from '../mandate/engine'
 import { createOrderFromPayment, weekday } from '../orders/service'
 import { paypalRequest } from '../paypal/client'
 import { templates } from '../templates'
@@ -81,8 +82,16 @@ async function recoverMandate(paypalOrderId: string, captureId: string | null, o
   const paypalOrder = await paypalRequest<{ purchase_units?: { reference_id?: string }[] }>('GET', `/v2/checkout/orders/${paypalOrderId}`)
   const mandateId = paypalOrder.purchase_units?.[0]?.reference_id
   if (!mandateId || !/^[0-9a-f-]{36}$/i.test(mandateId)) return 'no matching order'
+  // A payment cut off mid-way (deploy, crash) is released to "pending" here too, in case its
+  // account hasn't been back since.
+  await releaseStuckPayments({ id: mandateId })
   const mandate = await db().mandate.findUnique({ where: { id: mandateId } })
+  // Still "paying": our own call to PayPal hasn't answered yet and will make the order. Throwing
+  // answers 500, so the event stays unprocessed and PayPal sends it again later; if that call
+  // never finishes, the retry finds the mandate released to "pending" and recovers it.
+  if (mandate?.status === 'paying') throw new Error(`mandate ${shortId(mandate.id)} is still paying; PayPal will retry`)
   if (!mandate || mandate.status !== 'pending') return 'no matching order'
+  if (await db().order.findUnique({ where: { mandateId: mandate.id }, select: { id: true } })) return 'unchanged (order exists)'
 
   if (outcome === 'failed') {
     await db().mandate.update({ where: { id: mandate.id }, data: { status: 'failed', decidedAt: new Date() } })

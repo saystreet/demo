@@ -29,6 +29,9 @@ describe('speakAmount', () => {
     [99, 'ninety-nine cents'],
     [1, 'one cent'],
     [4199, 'forty-one ninety-nine'],
+    [10099, 'one hundred dollars and ninety-nine cents'],
+    [10005, 'one hundred oh five'],
+    [20010, 'two hundred dollars and ten cents'],
   ])('%i → %s', (cents, text) => expect(speakAmount(cents)).toBe(text))
 })
 

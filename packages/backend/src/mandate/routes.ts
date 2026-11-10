@@ -7,14 +7,16 @@ import { createConversation, findConversation, isUuid } from '../conversations/s
 import { db } from '../db'
 import { cancelMandate, confirmMandate, extendMandate, MandateNotFound, proposeMandate } from './engine'
 import { templates } from '../templates'
+import { jsonBody } from '../http'
 
 export const mandateRoutes = new Hono<AuthEnv>()
 
 // POST /api/mandates/:id/pay { confirm_cents }  The Pay button. It names the amount
 // ("Pay $39.99 to Walmart"), so pressing it is the same consent as saying it.
 mandateRoutes.post('/mandates/:id/pay', requireAccount, async (c) => {
-  const body = await c.req.json<Partial<PayRequest>>().catch(() => ({}) as Partial<PayRequest>)
-  const cents = typeof body.confirm_cents === 'number' && Number.isInteger(body.confirm_cents) ? body.confirm_cents : null
+  const body = await jsonBody<Partial<PayRequest>>(c)
+  // Whole cents within reason (the column is a 32-bit int); anything else is no amount.
+  const cents = typeof body.confirm_cents === 'number' && Number.isInteger(body.confirm_cents) && body.confirm_cents > 0 && body.confirm_cents <= 10_000_000 ? body.confirm_cents : null
   return decide(c.var.account.id, c.req.param('id'), (conversationId) =>
     withChatLock(conversationId, async () => {
       const decision = await confirmMandate(c.var.account, c.req.param('id'), cents, 'button')
@@ -51,9 +53,7 @@ mandateRoutes.post('/mandates/:id/extend', requireAccount, async (c) => {
 // needs the amount in the chat. Without conversation_id a new chat is started.
 mandateRoutes.post('/products/buy', requireAccount, async (c) => {
   const account = c.var.account
-  const body = await c.req
-    .json<{ product_id?: unknown; merchant_domain?: unknown; title?: unknown; conversation_id?: unknown }>()
-    .catch(() => ({}) as Record<string, unknown>)
+  const body = await jsonBody<{ product_id?: unknown; merchant_domain?: unknown; title?: unknown; conversation_id?: unknown }>(c)
   if (typeof body.product_id !== 'string' || !body.product_id) return c.json<ApiError>({ error: 'missing_product' }, 400)
 
   const conversation =

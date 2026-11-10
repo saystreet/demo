@@ -3,6 +3,7 @@
 
 export type Intent =
   | { type: 'pay'; cents: number | null } // cents is null when no amount was said
+  | { type: 'unclear' } // mentions paying, but isn't a plain "pay …" ("don't pay 39.99", "should I pay")
   | { type: 'cancel' }
   | { type: 'repeat' }
   | { type: 'other' }
@@ -31,16 +32,36 @@ export function normalize(text: string): string {
     .trim()
 }
 
+// Saying the amount is the consent, so the grammar is strict: "pay" comes first, with only these
+// in front of it ("okay, pay 39.99", "yes, go ahead and pay 39.99"), and nothing after it that
+// takes the consent back ("pay 39.99, no wait"). Anything else that mentions paying ("I don't want
+// to pay 39.99", "should I pay 39.99" with the "?" lost in transcription) is unclear, never a payment.
+const LEAD_IN = new Set([
+  'ok', 'okay', 'yes', 'yeah', 'yep', 'yup', 'sure', 'alright', 'right', 'so', 'um', 'uh', 'umm', 'well',
+  'please', 'then', 'and', 'just', 'fine', 'great', 'perfect', 'go', 'ahead', 'i', "i'll", 'will', "let's", 'lets',
+])
+const TAKE_BACK = new Set([
+  'not', 'no', "don't", 'dont', 'never', "won't", 'wont', "can't", 'cant', 'cannot', "shouldn't", 'shouldnt',
+  'wait', 'hold', 'maybe', 'if', 'later', 'tomorrow', 'instead', 'but', 'cancel', 'stop', 'should', 'would', 'could',
+])
+
+const MAX_CENTS = 10_000_000
+
 export function parseIntent(transcript: string): Intent {
-  // A question that mentions paying ("can I pay with PayPal?") is not a payment.
-  if (transcript.trim().endsWith('?')) return { type: 'other' }
   const text = normalize(transcript)
-  if (CANCEL.has(text)) return { type: 'cancel' }
-  if (REPEAT.has(text)) return { type: 'repeat' }
   const words = text.split(' ')
   const payAt = words.indexOf('pay')
-  if (payAt >= 0) return { type: 'pay', cents: parseAmount(words.slice(payAt + 1).join(' ')) }
-  return { type: 'other' }
+  // A question that mentions paying ("can I pay with PayPal?") is not a payment: the model answers it.
+  if (transcript.trim().endsWith('?')) return { type: 'other' }
+  if (CANCEL.has(text)) return { type: 'cancel' }
+  if (REPEAT.has(text)) return { type: 'repeat' }
+  if (payAt < 0) return { type: 'other' }
+  const before = words.slice(0, payAt)
+  const after = words.slice(payAt + 1)
+  if (!before.every((w) => LEAD_IN.has(w)) || after.some((w) => TAKE_BACK.has(w))) return { type: 'unclear' }
+  const cents = parseAmount(after.join(' '))
+  // Past any limit ("pay 99999999999"): no amount, so the person is asked for it again.
+  return { type: 'pay', cents: cents !== null && cents <= MAX_CENTS ? cents : null }
 }
 
 const ONES: Record<string, number> = {
@@ -74,6 +95,8 @@ export function parseAmount(input: string): number | null {
   for (let i = 0; i < words.length; i++) {
     const word = words[i]!
     const g = current as Group | null
+    // Bigger than any limit allows, and dropping the word would misread it ("one thousand" as $1).
+    if (word === 'thousand' || word === 'million' || word === 'billion' || word === 'grand') return null
     if (/^\d+$/.test(word)) startGroup(Number(word), 'digits')
     else if (word === 'dollar' || word === 'dollars' || word === 'bucks') {
       tokens.push({ marker: 'dollars' })

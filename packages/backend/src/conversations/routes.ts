@@ -1,11 +1,12 @@
-import type {
-  ApiError,
-  ConversationState,
-  ConversationSummary,
-  OptionCard,
-  StartChatRequest,
-  TurnRequest,
-  TurnResponse,
+import {
+  type ApiError,
+  type ConversationState,
+  type ConversationSummary,
+  type OptionCard,
+  type StartChatRequest,
+  speakAmount,
+  type TurnRequest,
+  type TurnResponse,
 } from '@saystreet/shared'
 import { Hono } from 'hono'
 import { runAgentTurn } from '../agent/turn'
@@ -16,11 +17,12 @@ import { db } from '../db'
 import type { Prisma } from '../generated/prisma/client'
 import { clientIp, consume, LIMITS } from '../limits'
 import { activeMandate, cancelMandate, cancelMandatesInConversation, confirmMandate, toMandateView } from '../mandate/engine'
-import { findOrder, toOrderSummary } from '../orders/service'
-import { trackingPhrase } from '../orders/tracking'
+import { canReturn, findOrder, toOrderSummary } from '../orders/service'
+import { isReturnConfirmation, refundOrder, returnRefusal, takePendingReturn, trackingPhrase } from '../orders/tracking'
 import { templates } from '../templates'
 import { respond } from './respond'
 import { addMessages, conversationState, createConversation, findConversation, listConversations, titleFrom, toSummary } from './service'
+import { jsonBody } from '../http'
 
 export const conversationRoutes = new Hono<AuthEnv>()
 
@@ -29,13 +31,15 @@ const TEXT_MAX = 500
 // POST /api/turn  One thing the person said or typed, and what SayStreet answers.
 conversationRoutes.post('/turn', requireAccount, async (c) => {
   const account = c.var.account
-  const body = await c.req.json<Partial<TurnRequest>>().catch(() => ({}) as Partial<TurnRequest>)
+  const body = await jsonBody<Partial<TurnRequest>>(c)
   const text = typeof body.text === 'string' ? body.text.trim() : ''
   if (!text) return c.json<ApiError>({ error: 'empty_text' }, 400)
   if (text.length > TEXT_MAX) return c.json<ApiError>({ error: 'text_too_long' }, 400)
 
   const conversation = body.conversation_id
-    ? await findConversation(account.id, body.conversation_id)
+    ? typeof body.conversation_id === 'string'
+      ? await findConversation(account.id, body.conversation_id)
+      : null
     : await createConversation(account.id, text)
   if (!conversation) return c.json<ApiError>({ error: 'not_found' }, 404)
 
@@ -52,6 +56,31 @@ conversationRoutes.post('/turn', requireAccount, async (c) => {
     const waiting = await activeMandate(account.id, conversation.id)
     const intent = parseIntent(text)
 
+    // "Return it" after SayStreet asked to confirm a return: plain code, like paying. Any other
+    // reply drops the question, so a later "yes" never returns something by surprise.
+    const returnOrderId = takePendingReturn(account.id, conversation.id)
+    if (returnOrderId && !waiting && (isReturnConfirmation(text) || intent.type === 'cancel')) {
+      const order = await findOrder(account.id, returnOrderId)
+      let reply: { text: string; order: Parameters<typeof toOrderSummary>[0] | null; failed: boolean }
+      if (!order) reply = { text: templates.noOrder(), order: null, failed: false }
+      else if (intent.type === 'cancel') reply = { text: templates.returnKept(order.title), order: null, failed: false }
+      else {
+        const check = canReturn(order)
+        if (check !== 'ok') reply = { text: returnRefusal(order, check), order, failed: false }
+        else {
+          const result = await refundOrder(order)
+          reply = { text: result.phrase, order: result.order, failed: result.status === 'failed' }
+        }
+      }
+      return c.json<TurnResponse>(
+        await respond(conversation.id, {
+          already,
+          messages: [{ role: 'system', source: 'system', text: reply.text, attachment: reply.order ? { kind: 'orders', orders: [toOrderSummary(reply.order)] } : null }],
+          sound: reply.failed ? 'error' : 'reply',
+        }),
+      )
+    }
+
     // While a payment waits in this chat, "pay …" and "cancel" are handled by plain code,
     // never by the model (spec section 10).
     if (waiting && intent.type === 'pay') {
@@ -62,18 +91,31 @@ conversationRoutes.post('/turn', requireAccount, async (c) => {
       const decision = await cancelMandate(account, waiting.id)
       return c.json<TurnResponse>(await respond(conversation.id, { already, messages: decision.messages, decision, sound: decision.sound }))
     }
+    // Paying mentioned, but not as a plain "pay …" ("I don't want to pay 39.99"): nothing is
+    // paid, and the server says how to pay or stop, so the model never talks about this money.
+    if (waiting && intent.type === 'unclear') {
+      return c.json<TurnResponse>(
+        await respond(conversation.id, {
+          already,
+          messages: [{ role: 'system', source: 'system', text: templates.notConfirmed(speakAmount(waiting.totalCents)) }],
+          sound: 'reply',
+        }),
+      )
+    }
     // "Yes" is not consent to an amount: ask for it, the same way every time.
     if (waiting && isAffirmation(text)) {
       const decision = await confirmMandate(account, waiting.id, null, 'voice')
       return c.json<TurnResponse>(await respond(conversation.id, { already, messages: decision.messages, decision, sound: decision.sound }))
     }
-    // "Pay …" again right after paying: say so instead of asking the model.
+    // "Pay …" with nothing waiting, after a payment in this chat (paid a moment ago, expired,
+    // cancelled): the server says where the money stands, never the model. With no payment here
+    // at all ("pay for the second one"), the model takes it and proposes one.
     if (!waiting && intent.type === 'pay') {
-      const recent = await recentlyPaid(account.id, conversation.id)
+      const recent = await recentMandate(account.id, conversation.id)
       if (recent) {
-        return c.json<TurnResponse>(
-          await respond(conversation.id, { already, messages: [{ role: 'system', source: 'system', text: templates.alreadyPaid() }], sound: 'reply' }),
-        )
+        const text =
+          recent.status === 'paid' ? templates.alreadyPaid() : recent.status === 'paying' || recent.status === 'pending' ? templates.pending() : templates.nothingToPay()
+        return c.json<TurnResponse>(await respond(conversation.id, { already, messages: [{ role: 'system', source: 'system', text }], sound: 'reply' }))
       }
     }
     if (intent.type === 'repeat') {
@@ -107,15 +149,11 @@ conversationRoutes.post('/turn', requireAccount, async (c) => {
   })
 })
 
-// A mandate in this chat paid (or being paid) in the last 10 minutes.
-async function recentlyPaid(accountId: string, conversationId: string) {
+// This chat's latest payment that is no longer waiting, from the last 30 minutes.
+async function recentMandate(accountId: string, conversationId: string) {
   return db().mandate.findFirst({
-    where: {
-      accountId,
-      conversationId,
-      status: { in: ['paid', 'paying', 'pending'] },
-      createdAt: { gte: new Date(Date.now() - 10 * 60 * 1000) },
-    },
+    where: { accountId, conversationId, status: { not: 'proposed' }, createdAt: { gte: new Date(Date.now() - 30 * 60 * 1000) } },
+    orderBy: { createdAt: 'desc' },
   })
 }
 
@@ -137,7 +175,7 @@ conversationRoutes.get('/conversations', requireAccount, async (c) => {
 // so "does it whistle?" or "buy it" refer to it. Without product_id: an empty new chat.
 conversationRoutes.post('/conversations', requireAccount, async (c) => {
   const account = c.var.account
-  const body = await c.req.json<StartChatRequest>().catch(() => ({}) as StartChatRequest)
+  const body = await jsonBody<StartChatRequest>(c)
 
   // "Ask about this order": its own chat if it has one; otherwise a new chat linked to it, so
   // "where is it?" and "return it" mean this order (resolveForTracking takes the chat's order).
@@ -216,7 +254,7 @@ conversationRoutes.get('/conversations/:id', requireAccount, async (c) => {
 conversationRoutes.patch('/conversations/:id', requireAccount, async (c) => {
   const conversation = await findConversation(c.var.account.id, c.req.param('id'))
   if (!conversation) return c.json<ApiError>({ error: 'not_found' }, 404)
-  const body = await c.req.json<{ title?: unknown }>().catch(() => ({}) as { title?: unknown })
+  const body = await jsonBody<{ title?: unknown }>(c)
   const title = typeof body.title === 'string' ? body.title.trim().replace(/\s+/g, ' ') : ''
   if (!title || title.length > 80) return c.json<ApiError>({ error: 'invalid_title' }, 400)
   const updated = await db().conversation.update({ where: { id: conversation.id }, data: { title } })

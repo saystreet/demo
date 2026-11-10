@@ -7,12 +7,13 @@ import { templates } from '../templates'
 import type { Prisma } from '../generated/prisma/client'
 import { spentThisWeek } from '../orders/service'
 import { createDemoAccount, isVoiceMode, toAccountView } from './service'
+import { jsonBody } from '../http'
 
 export const accountRoutes = new Hono<AuthEnv>()
 
 // New demo environment with a fresh customer. No email, no password.
 accountRoutes.post('/account', async (c) => {
-  const body = await c.req.json<{ voice_mode?: unknown }>().catch(() => ({}) as { voice_mode?: unknown })
+  const body = await jsonBody<{ voice_mode?: unknown }>(c)
   if (!isVoiceMode(body.voice_mode)) {
     return c.json<ApiError>({ error: 'invalid_voice_mode' }, 400)
   }
@@ -34,7 +35,7 @@ const SPEECH_RATES = new Set([0.75, 1, 1.25])
 // PATCH /api/me  Settings. See UpdateAccountRequest.
 accountRoutes.patch('/me', requireAccount, async (c) => {
   const account = c.var.account
-  const body = await c.req.json<Record<string, unknown>>().catch(() => ({}) as Record<string, unknown>)
+  const body = await jsonBody<Record<string, unknown>>(c)
   const data: Prisma.AccountUpdateInput = {}
 
   if (body.name !== undefined) {
