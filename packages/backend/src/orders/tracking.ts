@@ -92,9 +92,9 @@ export async function refundOrder(order: OrderWithEvents): Promise<RefundResult>
   }
 
   if (order.isSample) {
-    const updated = await markRefunded(order, null, 'refunded', 'Sample order, no PayPal refund')
+    const updated = await markRefunded(order, null, 'refunded', 'Sample order, so PayPal had nothing to refund')
     await audit(order.accountId, 'order.refunded', `SAMPLE ${fields({ order: shortId(order.id) })} refund simulated → no Payments API call`)
-    return { status: 'done', order: updated, phrase: templates.refundDone(order.totalCents, order.title) }
+    return { status: 'done', order: updated, phrase: templates.sampleReturned(order.title) }
   }
 
   if (!order.captureId) return { status: 'failed', order, phrase: templates.refundFailed() }

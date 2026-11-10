@@ -1,10 +1,31 @@
 import { randomUUID } from 'node:crypto'
-import type { FulfillmentStatus, OrderSummary, OrderView, PaymentStatus, ShippingAddress } from '@saystreet/shared'
+import { type FulfillmentStatus, type OrderSummary, type OrderView, type PaymentStatus, RETURN_DAYS, type ShippingAddress } from '@saystreet/shared'
 import { db } from '../db'
 import { DELIVERY_DAYS } from '../env'
 import type { Mandate, Order, OrderEvent, Prisma } from '../generated/prisma/client'
 
-export type OrderWithEvents = Order & { events: OrderEvent[] }
+export type OrderWithEvents = Order & { events: OrderEvent[]; mandate?: Pick<Mandate, 'heardCents' | 'confirmMethod' | 'decidedAt'> | null }
+
+const DAY = 24 * 60 * 60 * 1000
+
+// When it was delivered: the delivered event if we have the history, else the delivery date the
+// order carries (set to the actual day when it's marked delivered).
+function deliveredOn(order: Order & { events?: OrderEvent[] }): Date | null {
+  if (order.fulfillmentStatus !== 'delivered' && order.fulfillmentStatus !== 'returned') return null
+  const event = order.events?.findLast((e) => e.status === 'delivered')
+  return event?.createdAt ?? order.estimatedDelivery ?? null
+}
+
+// The one return rule, used by the order page, its route and the voice agent: paid, delivered,
+// and no more than RETURN_DAYS after delivery. What hasn't arrived can't be sent back.
+export function returnWindow(order: Order & { events?: OrderEvent[] }, now = new Date()): { returnable: boolean; returnBy: Date | null } {
+  const delivered = order.fulfillmentStatus === 'delivered' ? deliveredOn(order) : null
+  const returnBy = delivered ? new Date(delivered.getTime() + RETURN_DAYS * DAY) : null
+  const returnable = order.paymentStatus === 'paid' && order.fulfillmentStatus === 'delivered' && !!returnBy && now.getTime() <= returnBy.getTime()
+  return { returnable, returnBy }
+}
+
+const iso = (date: Date | null) => (date ? date.toISOString() : null)
 
 // Delivery date: DELIVERY_DAYS business days after the order (spec 7.5). Dates are UTC.
 export function estimatedDelivery(from: Date, days = DELIVERY_DAYS): Date {
@@ -90,10 +111,14 @@ export async function listOrders(accountId: string): Promise<OrderSummary[]> {
 
 export async function findOrder(accountId: string, id: string): Promise<OrderWithEvents | null> {
   if (!/^[0-9a-f-]{36}$/i.test(id)) return null
-  return db().order.findFirst({ where: { id, accountId }, include: { events: { orderBy: { createdAt: 'asc' } } } })
+  return db().order.findFirst({
+    where: { id, accountId },
+    include: { events: { orderBy: { createdAt: 'asc' } }, mandate: { select: { heardCents: true, confirmMethod: true, decidedAt: true } } },
+  })
 }
 
-export function toOrderSummary(order: Order): OrderSummary {
+export function toOrderSummary(order: Order & { events?: OrderEvent[] }): OrderSummary {
+  const window = returnWindow(order)
   return {
     order_id: order.id,
     title: order.title,
@@ -105,6 +130,9 @@ export function toOrderSummary(order: Order): OrderSummary {
     estimated_delivery: order.estimatedDelivery ? order.estimatedDelivery.toISOString().slice(0, 10) : null,
     is_sample: order.isSample,
     created_at: order.createdAt.toISOString(),
+    delivered_at: iso(deliveredOn(order)),
+    returnable: window.returnable,
+    return_by: iso(window.returnBy),
   }
 }
 
@@ -123,6 +151,13 @@ export function toOrderView(order: OrderWithEvents): OrderView {
     carrier: order.carrier,
     tracking_number: order.trackingNumber,
     conversation_id: order.conversationId,
-    events: order.events.map((e) => ({ status: e.status, note: e.note, created_at: e.createdAt.toISOString() })),
+    events: order.events.map((e) => ({ id: e.id, status: e.status, note: e.note, created_at: e.createdAt.toISOString() })),
+    confirmation:
+      order.mandate?.confirmMethod && order.mandate.decidedAt
+        ? { method: order.mandate.confirmMethod === 'voice' ? 'voice' : 'button', heard_cents: order.mandate.heardCents, at: order.mandate.decidedAt.toISOString() }
+        : null,
+    paypal_tracker_id: order.paypalTrackerId,
+    refund_id: order.refundId,
+    refunded_at: order.refundedAt ? order.refundedAt.toISOString() : null,
   }
 }

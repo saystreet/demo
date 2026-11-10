@@ -170,6 +170,12 @@ export function applyTurn(client: QueryClient, response: TurnResponse) {
     void client.invalidateQueries({ queryKey: keys.orders })
     client.setQueryData(keys.order(response.order.order_id), response.order)
   }
+  // A return, tracking answer or order list in the chat: the Orders pages may now be out of date.
+  const mentioned = response.messages.flatMap((m) => (m.attachment?.kind === 'orders' ? m.attachment.orders.map((o) => o.order_id) : []))
+  if (mentioned.length) {
+    void client.invalidateQueries({ queryKey: keys.orders })
+    for (const id of mentioned) void client.invalidateQueries({ queryKey: keys.order(id) })
+  }
   if (response.mandate?.status === 'paid' || response.mandate?.status === 'rejected') {
     void client.invalidateQueries({ queryKey: keys.audit })
     void client.invalidateQueries({ queryKey: keys.me })
@@ -203,6 +209,7 @@ export async function extendMandate(client: QueryClient, mandate: MandateView) {
   return view
 }
 export const startChat = (body: StartChatRequest) => api<TurnResponse>('/conversations', { body })
+export const startOrderChat = (orderId: string) => api<TurnResponse>('/conversations', { body: { order_id: orderId } })
 export const buyProduct = (body: { product_id: string; merchant_domain?: string; title?: string; conversation_id?: string }) =>
   api<TurnResponse>('/products/buy', { body })
 
@@ -239,12 +246,31 @@ export function useProduct(id: string, store: string | null) {
   })
 }
 
+// A payment or refund still settling at PayPal is finished by a webhook: check back every 5 s
+// until it settles, so an open page doesn't keep saying "Refund in progress".
+const unsettled = (o: { payment_status: string }) => o.payment_status === 'pending' || o.payment_status === 'refund_pending'
+
+export const ordersQuery = {
+  queryKey: keys.orders,
+  queryFn: () => api<{ orders: OrderSummary[] }>('/orders').then((r) => r.orders),
+}
+export const orderQuery = (id: string) => ({ queryKey: keys.order(id), queryFn: () => api<OrderView>(`/orders/${id}`) })
+
 export function useOrders() {
-  return useQuery({ queryKey: keys.orders, queryFn: () => api<{ orders: OrderSummary[] }>('/orders').then((r) => r.orders) })
+  return useQuery({ ...ordersQuery, refetchInterval: (q) => (q.state.data?.some(unsettled) ? 5000 : false) })
 }
 
 export function useOrder(id: string) {
-  return useQuery({ queryKey: keys.order(id), queryFn: () => api<OrderView>(`/orders/${id}`) })
+  const client = useQueryClient()
+  return useQuery({
+    ...orderQuery(id),
+    refetchInterval: (q) => (q.state.data && unsettled(q.state.data) ? 5000 : false),
+    // Coming from the list: show what the list already knows at once, while the rest loads.
+    placeholderData: () => {
+      const summary = client.getQueryData<OrderSummary[]>(keys.orders)?.find((o) => o.order_id === id)
+      return summary ? ({ ...summary, placeholder: true } as unknown as OrderView) : undefined
+    },
+  })
 }
 
 export function useReturnOrder() {

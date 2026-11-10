@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect } from 'react'
 import { createBrowserRouter, redirect, useNavigate } from 'react-router'
-import { useMe } from './api/queries'
+import { orderQuery, ordersQuery, queryClient, useMe } from './api/queries'
 import { RouteError } from './components/route-error'
 import { SIGNED_OUT_EVENT } from './lib/api'
 import { useAnnouncer } from './lib/announcer'
@@ -62,8 +62,24 @@ export const router = createBrowserRouter([
           // without remounting the page, so focus stays on Talk.
           { path: '/chat/:id?', lazy: page(() => import('./pages/chat')) },
           { path: '/products/:id', lazy: page(() => import('./pages/product')) },
-          { path: '/orders', lazy: page(() => import('./pages/orders')) },
-          { path: '/orders/:id', lazy: page(() => import('./pages/order')) },
+          // Start the data request together with the page's code, not after it (never blocking: the
+          // page shows its own loading and error states).
+          {
+            path: '/orders',
+            loader: () => {
+              void queryClient.prefetchQuery(ordersQuery)
+              return null
+            },
+            lazy: page(() => import('./pages/orders')),
+          },
+          {
+            path: '/orders/:id',
+            loader: ({ params }) => {
+              if (params.id) void queryClient.prefetchQuery(orderQuery(params.id))
+              return null
+            },
+            lazy: page(() => import('./pages/order')),
+          },
           { path: '/settings', lazy: page(() => import('./pages/settings')) },
         ],
       },

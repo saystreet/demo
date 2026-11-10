@@ -16,7 +16,13 @@ export type OrderSummary = {
   estimated_delivery: string | null // YYYY-MM-DD
   is_sample: boolean // created with the demo account, never went through PayPal
   created_at: string
+  delivered_at: string | null // ISO timestamp (or YYYY-MM-DD for older orders), once delivered
+  // One return rule for this page and the voice: delivered, paid, and within RETURN_DAYS of delivery.
+  returnable: boolean
+  return_by: string | null // ISO timestamp, the end of the return window; null until delivered
 }
+
+export const RETURN_DAYS = 30
 
 // GET /api/orders/:id
 export type OrderView = OrderSummary & {
@@ -32,7 +38,13 @@ export type OrderView = OrderSummary & {
   carrier: string | null
   tracking_number: string | null
   conversation_id: string | null
-  events: { status: string; note: string | null; created_at: string }[] // oldest first
+  events: { id: string; status: string; note: string | null; created_at: string }[] // oldest first
+  // How the person approved the payment: the amount said (voice) or the Pay button that named it.
+  // Null for sample orders.
+  confirmation: { method: 'voice' | 'button'; heard_cents: number | null; at: string } | null
+  paypal_tracker_id: string | null // tracking sent to PayPal's tracking API
+  refund_id: string | null
+  refunded_at: string | null
 }
 
 // POST /api/demo/advance-order  ("Ship latest order", "Mark delivered" in Demo tools)

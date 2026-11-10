@@ -115,7 +115,7 @@ export function sampleOrderEvents(orders: Prisma.OrderCreateManyInput[]): Prisma
         id: randomUUID(),
         orderId: order.id,
         status,
-        note: status === 'refunded' ? 'Sample order, no PayPal refund' : null,
+        note: status === 'refunded' ? 'Sample order, so PayPal had nothing to refund' : null,
         // Same-day events keep their order with a millisecond step.
         createdAt: new Date(created + days * DAY + i),
       })

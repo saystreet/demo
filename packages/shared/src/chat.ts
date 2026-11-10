@@ -37,6 +37,7 @@ export type ConversationState = {
 // Pass the product page's product_id and merchant_domain (and source_url for a pasted link).
 // Without product_id: an empty chat. Returns TurnResponse (201).
 export type StartChatRequest = {
+  order_id?: string // "Ask about this order": a chat about that order (its own, or a new one linked to it)
   product_id?: string
   merchant_domain?: string
   source_url?: string

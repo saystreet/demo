@@ -39,10 +39,14 @@ export async function findConversation(accountId: string, id: string): Promise<C
   return db().conversation.findFirst({ where: { id, accountId, deletedAt: null } })
 }
 
+// The 100 most recent: the sidebar shows 20 and "Show all"; nobody scrolls past a hundred.
+const LIST_MAX = 100
+
 export async function listConversations(accountId: string): Promise<ConversationSummary[]> {
   const rows = await db().conversation.findMany({
     where: { accountId, deletedAt: null },
     orderBy: { updatedAt: 'desc' },
+    take: LIST_MAX,
   })
   return rows.map(toSummary)
 }

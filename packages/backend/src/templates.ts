@@ -73,8 +73,11 @@ export const templates = {
   noOrder: () => "You don't have an order that fits. Say \"my orders\" to hear them.",
   refundStarted: (totalCents: number, title: string) => `Refund of ${formatUSD(totalCents)} for the ${title} started.`,
   refundDone: (totalCents: number, title: string) => `${formatUSD(totalCents)} refunded for the ${title}.`,
+  sampleReturned: (title: string) => `Your ${title} is marked returned. It was a sample order, so no money moved.`,
   alreadyRefunded: () => 'That order is already refunded.',
   notDeliveredYet: (title: string) => `Your ${title} hasn't arrived yet. You can return it once it's delivered.`,
+  returnWindowClosed: (title: string) => `The return window for your ${title} has closed. Returns are open for 30 days after delivery.`,
+  aboutOrder: (title: string) => `This chat is about your ${title}. Ask where it is, or say "return it".`,
   refundFailed: () => "PayPal didn't accept the refund. Nothing changed. Try again in a moment.",
 
   notHeard: () => "I didn't catch that. Try again.",

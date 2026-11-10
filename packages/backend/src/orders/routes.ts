@@ -1,7 +1,8 @@
 import type { ApiError, OrderSummary, OrderView, ReturnResponse } from '@saystreet/shared'
 import { Hono } from 'hono'
 import { type AuthEnv, requireAccount } from '../auth'
-import { findOrder, listOrders, toOrderView } from './service'
+import { templates } from '../templates'
+import { findOrder, listOrders, returnWindow, toOrderView } from './service'
 import { refundOrder } from './tracking'
 
 export const orderRoutes = new Hono<AuthEnv>()
@@ -23,6 +24,14 @@ orderRoutes.get('/orders/:id', requireAccount, async (c) => {
 orderRoutes.post('/orders/:id/return', requireAccount, async (c) => {
   const order = await findOrder(c.var.account.id, c.req.param('id'))
   if (!order) return c.json<ApiError>({ error: 'not_found' }, 404)
+  // The same rule as the voice agent: refunded or returned already is answered by refundOrder;
+  // otherwise only a delivered order inside its return window.
+  const settled = order.paymentStatus !== 'paid' || order.fulfillmentStatus === 'returned'
+  const window = returnWindow(order)
+  if (!settled && !window.returnable) {
+    const say = order.fulfillmentStatus === 'delivered' ? templates.returnWindowClosed(order.title) : templates.notDeliveredYet(order.title)
+    return c.json<ApiError>({ error: 'not_returnable', say }, 409)
+  }
   const result = await refundOrder(order)
   return c.json<ReturnResponse>({ order: toOrderView(result.order), result: result.status, say: result.phrase }, result.status === 'failed' ? 502 : 200)
 })

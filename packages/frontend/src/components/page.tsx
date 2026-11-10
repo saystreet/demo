@@ -55,13 +55,20 @@ export function LoadingLine({ label }: { label: string }) {
   )
 }
 
-export function ErrorLine({ message, onRetry }: { message: string; onRetry?: () => void }) {
+// The button stays in place while retrying (it says "Trying again…"), so keyboard and VoiceOver
+// focus isn't lost; the page says the result.
+export function ErrorLine({ message, onRetry, retrying }: { message: string; onRetry?: () => void; retrying?: boolean }) {
   return (
     <div className="py-6">
       <p className="text-bad">{message}</p>
       {onRetry && (
-        <button type="button" onClick={onRetry} className="mt-3 min-h-12 font-semibold underline underline-offset-4">
-          Try again
+        <button
+          type="button"
+          onClick={() => !retrying && onRetry()}
+          aria-disabled={retrying || undefined}
+          className="mt-3 min-h-12 font-semibold underline underline-offset-4 aria-disabled:cursor-wait"
+        >
+          {retrying ? 'Trying again…' : 'Try again'}
         </button>
       )}
     </div>

@@ -5,7 +5,7 @@ import type { NewMessage } from '../conversations/service'
 import type { Account } from '../db'
 import { type Decision, proposeMandate } from '../mandate/engine'
 import { db } from '../db'
-import { toOrderSummary } from '../orders/service'
+import { returnWindow, toOrderSummary } from '../orders/service'
 import { refundOrder, resolveForReturn, resolveForTracking, type Resolved, statusWords, trackingPhrase } from '../orders/tracking'
 import { templates } from '../templates'
 
@@ -290,10 +290,11 @@ async function requestReturn(args: Record<string, unknown>, state: ToolState): P
   const unresolved = whenUnresolved(resolved, state)
   if (unresolved) return unresolved
   const order = (resolved as Extract<Resolved, { order: unknown }>).order
-  // Named by id but not here yet: nothing to send back.
-  if (order.fulfillmentStatus !== 'delivered' && order.fulfillmentStatus !== 'returned') {
-    state.messages.push({ role: 'system', source: 'system', text: templates.notDeliveredYet(order.title) })
-    return { output: JSON.stringify({ error: 'NOT_DELIVERED' }), terminal: true }
+  // The order page's rule: not here yet, or past the return window, means nothing to send back.
+  if (order.paymentStatus === 'paid' && order.fulfillmentStatus !== 'returned' && !returnWindow(order).returnable) {
+    const delivered = order.fulfillmentStatus === 'delivered'
+    state.messages.push({ role: 'system', source: 'system', text: delivered ? templates.returnWindowClosed(order.title) : templates.notDeliveredYet(order.title) })
+    return { output: JSON.stringify({ error: delivered ? 'RETURN_WINDOW_CLOSED' : 'NOT_DELIVERED' }), terminal: true }
   }
   state.title ??= `Return: ${order.title}`
   const result = await refundOrder(order)

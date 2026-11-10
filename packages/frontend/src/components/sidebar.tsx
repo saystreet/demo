@@ -1,8 +1,8 @@
 import type { ConversationSummary } from '@saystreet/shared'
 import { DotsThreeVertical, Package, Plus, Sliders } from '@phosphor-icons/react'
 import { Dialog, DropdownMenu } from 'radix-ui'
-import { type FormEvent, useRef, useState } from 'react'
-import { Link, NavLink, useNavigate, useParams } from 'react-router'
+import { type FormEvent, useId, useRef, useState } from 'react'
+import { Link, NavLink, useMatch, useNavigate, useParams } from 'react-router'
 import { useConversations, useDeleteConversation, useMe, useRenameConversation } from '../api/queries'
 import { ApiError } from '../lib/api'
 import { useAnnouncer } from '../lib/announcer'
@@ -12,11 +12,27 @@ import { Button, buttonClass } from './ui/button'
 import { Input } from './ui/field'
 
 // The app's navigation (spec 16.4): new chat, the chats, orders, settings, who is signed in.
+//
+// Many chats: the list scrolls on its own, grouped by date under headings (VoiceOver's rotor jumps
+// between them), and shows the 20 latest until "Show all", so a screen reader user isn't two swipes
+// per chat away from Orders and Settings. The list is a named region to jump to or past.
+
+const RECENT = 20
 
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const { data: conversations } = useConversations()
   const { data: me } = useMe()
   const { id: currentId } = useParams()
+  const [showAll, setShowAll] = useState(false)
+  // On an order page "Orders" is the section you're in, not the page itself.
+  const onOrdersList = !!useMatch('/orders')
+  // The sidebar is drawn twice (the desktop panel and the phone sheet): ids must not repeat.
+  const chatsId = useId()
+
+  const all = conversations ?? []
+  // The open chat is always listed, even when it's older than the latest 20.
+  const expanded = showAll || all.findIndex((c) => c.id === currentId) >= RECENT
+  const groups = groupByDate(expanded ? all : all.slice(0, RECENT))
 
   return (
     <nav aria-label="SayStreet" className="flex h-full flex-col gap-6 p-4">
@@ -29,22 +45,42 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         New chat
       </Link>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <h2 className="px-1 text-sm font-semibold text-ink-muted">Chats</h2>
-        {conversations?.length ? (
-          <ul className="mt-2 grid gap-1">
-            {conversations.map((chat) => (
-              <ChatRow key={chat.id} chat={chat} current={chat.id === currentId} onNavigate={onNavigate} />
+      <section aria-labelledby={`${chatsId}-title`} className="min-h-0 flex-1 overflow-y-auto">
+        <h2 id={`${chatsId}-title`} className="px-1 text-sm font-semibold text-ink-muted">
+          Chats
+        </h2>
+        {all.length ? (
+          <>
+            {groups.map((group) => (
+              <div key={group.label} className="mt-4 first-of-type:mt-2">
+                <h3 id={`${chatsId}-${group.key}`} className="px-1 text-xs font-semibold tracking-wide text-ink-muted uppercase">
+                  {group.label}
+                </h3>
+                <ul aria-labelledby={`${chatsId}-${group.key}`} className="mt-1 grid gap-1">
+                  {group.chats.map((chat) => (
+                    <ChatRow key={chat.id} chat={chat} current={chat.id === currentId} onNavigate={onNavigate} />
+                  ))}
+                </ul>
+              </div>
             ))}
-          </ul>
+            {all.length > RECENT && !(expanded && !showAll) && (
+              <button
+                type="button"
+                onClick={() => setShowAll((v) => !v)}
+                className="mt-3 flex min-h-12 w-full items-center rounded-(--radius-control) px-3 text-left font-semibold text-ink-muted underline underline-offset-4 hover:bg-surface-2 hover:text-ink"
+              >
+                {showAll ? 'Show fewer chats' : `Show all chats (${all.length})`}
+              </button>
+            )}
+          </>
         ) : (
           <p className="mt-2 px-1 text-sm text-ink-muted">Your chats will show up here.</p>
         )}
-      </div>
+      </section>
 
       <ul className="grid gap-1 border-t border-line pt-4">
         <li>
-          <NavLink to="/orders" onClick={onNavigate} className={navClass}>
+          <NavLink to="/orders" onClick={onNavigate} className={navClass} aria-current={onOrdersList ? 'page' : 'true'}>
             <Package aria-hidden="true" size={22} />
             Orders
           </NavLink>
@@ -64,6 +100,26 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       )}
     </nav>
   )
+}
+
+// Today / Yesterday / Previous 7 days / Older, by the chat's last activity in the person's own time.
+type Group = { key: string; label: string; chats: ConversationSummary[] }
+function groupByDate(chats: ConversationSummary[]): Group[] {
+  const startOfToday = new Date()
+  startOfToday.setHours(0, 0, 0, 0)
+  const day = 24 * 60 * 60 * 1000
+  const buckets: Group[] = [
+    { key: 'today', label: 'Today', chats: [] },
+    { key: 'yesterday', label: 'Yesterday', chats: [] },
+    { key: 'week', label: 'Previous 7 days', chats: [] },
+    { key: 'older', label: 'Older', chats: [] },
+  ]
+  for (const chat of chats) {
+    const at = new Date(chat.updated_at).getTime()
+    const bucket = at >= startOfToday.getTime() ? 0 : at >= startOfToday.getTime() - day ? 1 : at >= startOfToday.getTime() - 7 * day ? 2 : 3
+    buckets[bucket]!.chats.push(chat)
+  }
+  return buckets.filter((b) => b.chats.length > 0)
 }
 
 const navClass = ({ isActive }: { isActive: boolean }) =>

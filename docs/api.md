@@ -99,7 +99,7 @@ the one the buttons act on; older mandate cards are history.
 | `/chat`, `/chat/:id` | `GET /api/conversations` (sidebar), `GET /api/conversations/:id`, `POST /api/turn`, `POST /api/transcribe`, mandate pay/cancel, `PATCH` / `DELETE /api/conversations/:id` |
 | `/products/:id?store=` | `GET /api/products/:id?store=`; "Buy for $X" → `POST /api/products/buy`; "Ask about this product" → `POST /api/conversations` |
 | `/orders` | `GET /api/orders` |
-| `/orders/:id` | `GET /api/orders/:id`; "Return this item" → `POST /api/orders/:id/return` |
+| `/orders/:id` | `GET /api/orders/:id`; Return → `POST /api/orders/:id/return`; Buy again → `POST /api/products/buy`; Ask about this order → `POST /api/conversations { order_id }` |
 | `/settings` | `GET /api/me`, `PATCH /api/me`, `POST /api/me/reset` |
 | Demo section (in `/settings`) | `POST /api/demo/price-override`, `POST /api/demo/advance-order`, `GET /api/audit`, `POST /api/me/reset` |
 
@@ -112,8 +112,8 @@ the one the buttons act on; older mandate cards are history.
 | `GET /api/me` | | `AccountView` | |
 | `PATCH /api/me` | `UpdateAccountRequest` | `AccountView` | Any subset. Validate the address with `validateAddress` (shared) before sending. 400 `invalid_address` has `field` and `say`. |
 | `POST /api/me/reset` | | `SessionResponse` (201) | New account, same voice mode. Replace the token. |
-| `GET /api/conversations` | | `{ conversations: ConversationSummary[] }` | Newest first. |
-| `POST /api/conversations` | `StartChatRequest` | `TurnResponse` (201) | With `product_id`: chat about that product (it is option one). Without: empty chat. |
+| `GET /api/conversations` | | `{ conversations: ConversationSummary[] }` | Newest first, the 100 most recent. |
+| `POST /api/conversations` | `StartChatRequest` | `TurnResponse` (201) | With `order_id`: the order's own chat (200), or a new chat linked to it that opens with its status. With `product_id`: chat about that product (it is option one). Without: empty chat. |
 | `GET /api/conversations/:id` | | `ConversationState` | Last 200 messages, current options, the waiting mandate. |
 | `PATCH /api/conversations/:id` | `{ title }` | `ConversationSummary` | Up to 80 characters. |
 | `DELETE /api/conversations/:id` | | `{ ok: true }` | Also cancels its waiting mandate. |
@@ -125,8 +125,8 @@ the one the buttons act on; older mandate cards are history.
 | `POST /api/mandates/:id/cancel` | | `TurnResponse` | |
 | `POST /api/mandates/:id/extend` | | `MandateView` | 404, 409 `not_waiting` |
 | `GET /api/orders` | | `{ orders: OrderSummary[] }` | Newest first, samples included. |
-| `GET /api/orders/:id` | | `OrderView` | `events` oldest first; `ship_to` is the address at purchase time. |
-| `POST /api/orders/:id/return` | | `ReturnResponse` | Speak `say`. Real orders refund through PayPal. |
+| `GET /api/orders/:id` | | `OrderView` | `events` oldest first; `ship_to` is the address at purchase time; `confirmation` is how the payment was approved (amount said or Pay button); `returnable` / `return_by`: delivered, paid, within 30 days. |
+| `POST /api/orders/:id/return` | | `ReturnResponse` | Speak `say`. Real orders refund through PayPal. 409 `not_returnable` with `say` when not delivered yet or past the 30-day window (the voice agent uses the same rule). |
 | `POST /api/demo/price-override` | `{ conversation_id?, option_n, delta_cents }` or `{ clear: true }` | `{ ok, title, conversation_id }` | "Raise price of option 1 by $7": `option_n: 1, delta_cents: 700`. Without `conversation_id`: the latest chat with options (409 `no_options` with `say` if none). Only the payment check sees it. |
 | `POST /api/demo/advance-order` | `{ order_id? }` | `AdvanceOrderResponse` | "Ship latest order", then "Mark delivered". Speak `say`. 404/409 when there's nothing to move. |
 | `GET /api/audit` | | `{ lines: { line, created_at }[] }` | Engine log for Demo tools, newest first. |

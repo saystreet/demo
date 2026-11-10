@@ -16,6 +16,8 @@ import { db } from '../db'
 import type { Prisma } from '../generated/prisma/client'
 import { clientIp, consume, LIMITS } from '../limits'
 import { activeMandate, cancelMandate, cancelMandatesInConversation, confirmMandate, toMandateView } from '../mandate/engine'
+import { findOrder, toOrderSummary } from '../orders/service'
+import { trackingPhrase } from '../orders/tracking'
 import { templates } from '../templates'
 import { respond } from './respond'
 import { addMessages, conversationState, createConversation, findConversation, listConversations, titleFrom, toSummary } from './service'
@@ -136,6 +138,29 @@ conversationRoutes.get('/conversations', requireAccount, async (c) => {
 conversationRoutes.post('/conversations', requireAccount, async (c) => {
   const account = c.var.account
   const body = await c.req.json<StartChatRequest>().catch(() => ({}) as StartChatRequest)
+
+  // "Ask about this order": its own chat if it has one; otherwise a new chat linked to it, so
+  // "where is it?" and "return it" mean this order (resolveForTracking takes the chat's order).
+  if (typeof body.order_id === 'string' && body.order_id) {
+    const order = await findOrder(account.id, body.order_id)
+    if (!order) return c.json<ApiError>({ error: 'not_found' }, 404)
+    const existing = order.conversationId ? await findConversation(account.id, order.conversationId) : null
+    if (existing) return c.json<TurnResponse>(await respond(existing.id, { messages: [], sound: null }))
+    const conversation = await createConversation(account.id, `Order: ${order.title}`)
+    await db().order.update({ where: { id: order.id }, data: { conversationId: conversation.id } })
+    const response = await respond(conversation.id, {
+      messages: [
+        {
+          role: 'system',
+          source: 'system',
+          text: `${templates.aboutOrder(order.title)} ${trackingPhrase(order)}`,
+          attachment: { kind: 'orders', orders: [toOrderSummary(order)] },
+        },
+      ],
+      sound: 'reply',
+    })
+    return c.json<TurnResponse>(response, 201)
+  }
 
   if (typeof body.product_id !== 'string' || !body.product_id) {
     const conversation = await createConversation(account.id, 'New chat')
