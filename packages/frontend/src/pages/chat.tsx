@@ -16,6 +16,7 @@ import {
   useDeleteConversation,
   useMe,
 } from '../api/queries'
+import { AccountReady } from '../components/chat/account-ready'
 import { MandateCard, OptionsCard, OrdersCard } from '../components/chat/cards'
 import { Composer } from '../components/chat/composer'
 import { ErrorLine, LoadingLine, PageTitle, usePageTitle } from '../components/page'
@@ -35,7 +36,13 @@ import { play } from '../lib/sounds'
 // press, how to say it and what gets paid. Orders (track, return) wait in the suggestions below.
 const HEADING = 'What are you shopping for today?'
 const REASSURE = "Say it in your own words. You'll hear the total before anything is paid."
-const WELCOME = `Hi, I'm SayStreet. ${HEADING}` // spoken mode says this once
+// Spoken mode says this once; it carries the one rule worth knowing before the first purchase.
+const WELCOME = `Hi, I'm SayStreet. ${HEADING} When you're ready to pay, you'll say the amount.`
+const HOW = [
+  'Say what you want and your budget. You hear up to three options.',
+  'Pick one by its number. SayStreet tells you the total with shipping.',
+]
+// The rule no other store has, set apart from the two steps above.
 const ERROR = 'Something went wrong on my side. Nothing was paid. Try again.'
 // The welcome's three jobs. Buying starts from a search; tracking and returning use the sample
 // orders every demo account starts with, each landing on exactly one of them.
@@ -372,11 +379,13 @@ export default function ChatPage() {
     <div className="mx-auto flex min-h-[calc(100dvh-4.1rem)] max-w-3xl flex-col px-4 sm:px-8 lg:min-h-dvh">
       {empty ? (
         // An empty chat leads with what to do, not with "New chat".
-        <div className="pt-8 pb-4 sm:pt-14">
+        <div className="pt-8 pb-4 sm:pt-10">
           <h1 tabIndex={-1} className="text-3xl leading-tight font-bold sm:text-4xl">
             {HEADING}
           </h1>
           <p className="mt-3 text-lg text-ink-muted">{REASSURE}</p>
+          {/* Once per account: what the start page set up, read right after the heading. */}
+          <AccountReady onDone={focusTalk} />
         </div>
       ) : (
         <div className="pt-8 pb-4 sm:pt-12">
@@ -429,7 +438,7 @@ export default function ChatPage() {
         // chat leads with it, right under the welcome: Talk is the first thing after the heading.
         className={cn(
           'sticky bottom-0 z-10 border-t border-edge/40 bg-ground pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pt-4 sm:pb-[max(1rem,env(safe-area-inset-bottom))] [@media(max-height:32rem)]:static',
-          empty && 'static border-t-0 pt-6 sm:pt-8',
+          empty && 'static border-t-0 pt-4 sm:pt-5',
         )}
       >
         {/* Not a live region (the announcer already said it), but readable when VoiceOver comes back to it. */}
@@ -453,11 +462,38 @@ export default function ChatPage() {
       </div>
       {empty && (
         // After Talk and typing: examples to start from.
-        <div className="pt-8 pb-10">
+        <div className="pt-6 pb-10">
           <h2 className="text-sm font-semibold text-ink-muted">Try saying</h2>
           <Starters items={SHOP} onPick={start} />
-          <h2 className="mt-6 text-sm font-semibold text-ink-muted">Your demo account already has a few orders</h2>
+          <h2 className="mt-6 text-sm font-semibold text-ink-muted">Try it on your sample orders</h2>
           <Starters items={ORDERS} onPick={start} />
+
+          {/* The one thing no other store does: paying means saying the amount. Plain text, no
+              tour: three swipes for a screen reader, easy to skip, there whenever a chat is empty. */}
+          <section aria-labelledby="how-title" className="mt-10 border-t border-line pt-6">
+            <h2 id="how-title" className="text-lg font-bold">
+              How it works
+            </h2>
+            <ol className="mt-3 grid gap-3">
+              {HOW.map((step, i) => (
+                <li key={step} className="grid grid-cols-[2rem_minmax(0,1fr)] gap-2">
+                  <span aria-hidden="true" className="data text-accent">
+                    {i + 1}
+                  </span>
+                  <span className="text-ink-muted">{step}</span>
+                </li>
+              ))}
+              <li className="grid grid-cols-[2rem_minmax(0,1fr)] gap-2">
+                <span aria-hidden="true" className="data text-accent">
+                  3
+                </span>
+                <span className="text-ink-muted">
+                  To pay, <strong className="font-semibold text-ink">say the amount</strong>, like{' '}
+                  <span className="data text-ink">"pay thirty-one oh nine"</span>. Anything else, and nothing is paid.
+                </span>
+              </li>
+            </ol>
+          </section>
         </div>
       )}
       {/* Below the input, outside the sticky bar: reachable by scrolling, never covering the chat. */}
