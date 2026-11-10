@@ -4,6 +4,7 @@ import { Link, useNavigationType } from 'react-router'
 import { useOrders } from '../api/queries'
 import { Badge, ErrorLine, LoadingLine, PageTitle, usePageTitle } from '../components/page'
 import { ProductImage } from '../components/product-image'
+import { Spending } from '../components/spending'
 import { useAnnouncer } from '../lib/announcer'
 import { orderStatus, shortDate, storeName } from '../lib/words'
 
@@ -78,53 +79,95 @@ export default function OrdersPage() {
         </p>
       )}
 
-      {!!orders.data?.length && (
-        <>
-          <p className="mt-4 text-lg text-ink-muted">{summary(orders.data)}</p>
-          <ul className="mt-6 grid grid-cols-[minmax(0,1fr)] gap-3">
-            {orders.data.map((order) => {
-              const status = orderStatus(order)
-              const store = storeName(order.merchant)
-              const total = formatUSD(order.total_cents)
-              const date = shortDate(order.created_at)
-              return (
-                <li key={order.order_id}>
-                  <Link
-                    to={`/orders/${order.order_id}`}
-                    data-order={order.order_id}
-                    onClick={() => remember(order.order_id)}
-                    className="grid grid-cols-[64px_minmax(0,1fr)] gap-4 rounded-(--radius-panel) border border-edge/60 bg-surface-1 p-4 hover:border-ink hover:bg-surface-2 sm:grid-cols-[72px_minmax(0,1fr)_auto]"
-                  >
-                    {/* The name, for screen readers: the card's content in listening order. */}
-                    <span className="sr-only">
-                      {order.title}, {status.words}. {total} from {store}, ordered {date}
-                      {order.is_sample ? '. Sample order' : ''}.
-                    </span>
-                    {order.image_url ? (
-                      <ProductImage src={order.image_url} alt="" size={72} lazy={false} className="p-1" />
-                    ) : (
-                      <span aria-hidden="true" className="aspect-square w-full rounded-(--radius-control) bg-surface-2" />
-                    )}
-                    <span aria-hidden="true" className="min-w-0">
-                      <span className="block font-semibold break-words">{order.title}</span>
-                      <span className="block text-ink-muted">
-                        {store}, ordered {date}
-                      </span>
-                      <span className="mt-2 flex flex-wrap items-center gap-2">
-                        <Badge tone={status.tone}>{status.words}</Badge>
-                        {order.is_sample && <Badge>Sample</Badge>}
-                      </span>
-                    </span>
-                    <span aria-hidden="true" className="data col-start-2 text-lg sm:col-start-3 sm:text-right">
-                      {total}
-                    </span>
-                  </Link>
-                </li>
-              )
-            })}
-          </ul>
-        </>
-      )}
+      {!!orders.data?.length && <Groups orders={orders.data} remember={remember} />}
     </div>
+  )
+}
+
+// Real purchases and the demo's sample orders are kept apart: spending counts only what PayPal
+// actually paid, so it sits with the purchases it adds up, and the samples say what they are.
+function Groups({ orders, remember }: { orders: OrderSummary[]; remember: (id: string) => void }) {
+  const real = orders.filter((o) => !o.is_sample)
+  const samples = orders.filter((o) => o.is_sample)
+  return (
+    <>
+      <section aria-labelledby="purchases-title" className="mt-8">
+        <h2 id="purchases-title" className="text-xl font-bold">
+          Your purchases
+        </h2>
+        {real.length > 0 ? (
+          <>
+            <p className="mt-1 text-ink-muted">{summary(real)}</p>
+            <Spending orders={real} />
+            <OrderList orders={real} remember={remember} />
+          </>
+        ) : (
+          <p className="mt-1 text-ink-muted">
+            Nothing bought through SayStreet yet.{' '}
+            <Link to="/chat" className="font-semibold text-ink underline underline-offset-4 hover:text-accent">
+              Start a chat to buy something
+            </Link>
+            .
+          </p>
+        )}
+      </section>
+      {samples.length > 0 && (
+        <section aria-labelledby="samples-title" className="mt-10 first:mt-8">
+          <h2 id="samples-title" className="text-xl font-bold">
+            Sample orders
+          </h2>
+          <p className="mt-1 text-ink-muted">
+            They came with the demo account, so you can try tracking and returns right away. No money moved.
+          </p>
+          <OrderList orders={samples} remember={remember} />
+        </section>
+      )}
+    </>
+  )
+}
+
+function OrderList({ orders, remember }: { orders: OrderSummary[]; remember: (id: string) => void }) {
+  return (
+    <ul className="mt-5 grid grid-cols-[minmax(0,1fr)] gap-3">
+      {orders.map((order) => {
+        const status = orderStatus(order)
+        const store = storeName(order.merchant)
+        const total = formatUSD(order.total_cents)
+        const date = shortDate(order.created_at)
+        return (
+          <li key={order.order_id}>
+            <Link
+              to={`/orders/${order.order_id}`}
+              data-order={order.order_id}
+              onClick={() => remember(order.order_id)}
+              className="grid grid-cols-[64px_minmax(0,1fr)] gap-4 rounded-(--radius-panel) border border-edge/60 bg-surface-1 p-4 hover:border-ink hover:bg-surface-2 sm:grid-cols-[72px_minmax(0,1fr)_auto]"
+            >
+              {/* The name, for screen readers: the card's content in listening order. */}
+              <span className="sr-only">
+                {order.title}, {status.words}. {total} from {store}, ordered {date}
+                {order.is_sample ? '. Sample order' : ''}.
+              </span>
+              {order.image_url ? (
+                <ProductImage src={order.image_url} alt="" size={72} lazy={false} className="p-1" />
+              ) : (
+                <span aria-hidden="true" className="aspect-square w-full rounded-(--radius-control) bg-surface-2" />
+              )}
+              <span aria-hidden="true" className="min-w-0">
+                <span className="block font-semibold break-words">{order.title}</span>
+                <span className="block text-ink-muted">
+                  {store}, ordered {date}
+                </span>
+                <span className="mt-2 flex flex-wrap items-center gap-2">
+                  <Badge tone={status.tone}>{status.words}</Badge>
+                </span>
+              </span>
+              <span aria-hidden="true" className="data col-start-2 text-lg sm:col-start-3 sm:text-right">
+                {total}
+              </span>
+            </Link>
+          </li>
+        )
+      })}
+    </ul>
   )
 }
