@@ -197,3 +197,58 @@ async function merchantNames(domains: string[]): Promise<Map<string, string>> {
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
+
+// ---- Product by link -------------------------------------------------------
+
+export type LinkResult =
+  | { option: OptionCard }
+  | { error: 'LINK_FAILED' | 'LINK_NOT_PRODUCT' }
+
+// "Found it but can't check out? Paste the link." The person's link becomes the only option,
+// priced from that store when Channel3 has its offer, otherwise from the cheapest store.
+export async function lookupLink(rawUrl: string): Promise<LinkResult> {
+  let url: URL
+  try {
+    url = new URL(rawUrl.trim())
+  } catch {
+    return { error: 'LINK_FAILED' }
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return { error: 'LINK_FAILED' }
+
+  let product: C3Product
+  try {
+    product = (await cached(`link:${url.toString()}`, HOUR, () => channel3.lookup(url.toString(), 3))).product
+  } catch (error) {
+    console.warn(`Channel3 lookup failed for ${url.hostname} (${describe(error)})`)
+    if (error instanceof Channel3Error && error.status === 422) return { error: 'LINK_NOT_PRODUCT' }
+    return { error: 'LINK_FAILED' }
+  }
+
+  const linkDomain = normalizeDomain(url.hostname)
+  const offer = pickOffer(product, linkDomain) ?? pickOffer(product)
+  const item = offer && offerPriceCents(offer)
+  if (!offer || !item) return { error: 'LINK_NOT_PRODUCT' }
+
+  const shipping = shippingCents()
+  const domain = normalizeDomain(offer.domain)
+  const names = await merchantNames([domain])
+  const image = mainImage(product)
+  return {
+    option: {
+      n: 1,
+      product_id: product.id,
+      source: 'link',
+      source_url: url.toString(),
+      title: product.title,
+      merchant: names.get(domain) ?? merchantFromDomain(domain),
+      merchant_domain: domain,
+      image_url: image ? (image.cleaned_url ?? image.url) : null,
+      image_alt: image?.alt_text ?? null,
+      item_cents: item,
+      shipping_cents: shipping,
+      total_cents: item + shipping,
+      rating: product.ratings?.value ?? null,
+      rating_count: product.ratings?.count ?? null,
+    },
+  }
+}

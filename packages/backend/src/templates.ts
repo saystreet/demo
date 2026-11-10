@@ -20,6 +20,10 @@ export const templates = {
     return [intro, ...items].join(' ')
   },
 
+  linkFound: (option: OptionCard) =>
+    `Found it: ${option.title} on ${option.merchant}, ${formatUSD(option.total_cents)} delivered. Say buy it to get the total, or ask about it.`,
+  linkFailed: () => "I couldn't read that link. Try again, or tell me what you're looking for.",
+  linkNotProduct: () => "That link isn't a product page. Open the product itself and copy its link.",
   noOptions: () => 'I found nothing that fits. Try different words or a higher budget.',
   storeUnknown: () => "I don't know that store. Here's what I found everywhere.",
   catalogDown: () => "I can't reach the store catalog right now. Try again in a moment.",
@@ -61,6 +65,10 @@ export const templates = {
     const items = orders.map((o, i) => `${['One', 'Two', 'Three', 'Four', 'Five'][i]}: ${o.title}, ${o.statusWords}.`)
     return [`You have ${count}.`, ...items].join(' ')
   },
+  shipped: (title: string, carrier: string, trackingLast4: string, etaWeekday: string) =>
+    `Your ${title} has shipped. ${carrier}, tracking ending ${trackingLast4}. It should arrive ${etaWeekday}.`,
+  delivered: (title: string) => `Your ${title} was delivered.`,
+  nothingToShip: () => 'There is no order to move along. Buy something first.',
   noOrder: () => "You don't have an order that fits. Say \"my orders\" to hear them.",
   refundStarted: (totalCents: number) => `Refund of ${formatUSD(totalCents)} started.`,
   refundDone: (totalCents: number) => `Refund of ${formatUSD(totalCents)} done.`,

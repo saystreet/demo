@@ -1,6 +1,6 @@
 import { formatUSD, type OptionCard } from '@saystreet/shared'
 import type { FunctionTool } from 'openai/resources/responses/responses'
-import { CatalogUnavailable, getProductView, ProductNotFound, searchOptions } from '../catalog/service'
+import { CatalogUnavailable, getProductView, lookupLink, ProductNotFound, searchOptions } from '../catalog/service'
 import type { NewMessage } from '../conversations/service'
 import type { Account } from '../db'
 import { type Decision, proposeMandate } from '../mandate/engine'
@@ -25,6 +25,18 @@ export const TOOLS: FunctionTool[] = [
         store: { type: ['string', 'null'], description: 'Store the person named, as a domain (target.com) or a name (Target).' },
       },
       required: ['query', 'budget_cents', 'store'],
+      additionalProperties: false,
+    },
+  },
+  {
+    type: 'function',
+    name: 'lookup_link',
+    description: 'Find the product behind a link the person pasted from a store. It becomes option one; the system reads it aloud.',
+    strict: true,
+    parameters: {
+      type: 'object',
+      properties: { url: { type: 'string', description: 'The product link exactly as the person pasted it.' } },
+      required: ['url'],
       additionalProperties: false,
     },
   },
@@ -125,6 +137,8 @@ export async function runTool(name: string, rawArgs: string, state: ToolState): 
   switch (name) {
     case 'search_products':
       return searchProducts(args, state)
+    case 'lookup_link':
+      return lookupLinkTool(args, state)
     case 'get_product':
       return getProduct(args, state)
     case 'propose_purchase':
@@ -227,6 +241,8 @@ async function proposePurchase(args: Record<string, unknown>, state: ToolState):
     conversationId: state.conversationId,
     productId: option.product_id,
     merchantDomain: option.merchant_domain,
+    source: option.source,
+    sourceUrl: option.source_url,
     budgetCents: budget,
   })
   state.decision = decision
@@ -299,4 +315,29 @@ function whenUnresolved(resolved: Resolved, state: ToolState): ToolResult | null
 
 function orderIdArg(args: Record<string, unknown>): string | null {
   return typeof args.order_id === 'string' && args.order_id ? args.order_id : null
+}
+
+async function lookupLinkTool(args: Record<string, unknown>, state: ToolState): Promise<ToolResult> {
+  const url = typeof args.url === 'string' ? args.url : ''
+  const result = await lookupLink(url)
+  if ('error' in result) {
+    state.messages.push({
+      role: 'system',
+      source: 'system',
+      text: result.error === 'LINK_NOT_PRODUCT' ? templates.linkNotProduct() : templates.linkFailed(),
+    })
+    return { output: JSON.stringify({ error: result.error }), terminal: true }
+  }
+  state.options = [result.option]
+  state.optionsChanged = true
+  state.messages.push({
+    role: 'system',
+    source: 'system',
+    text: templates.linkFound(result.option),
+    attachment: { kind: 'options', options: [result.option] },
+  })
+  return {
+    output: JSON.stringify({ option: { n: 1, product_id: result.option.product_id, title: result.option.title, merchant: result.option.merchant } }),
+    terminal: true,
+  }
 }

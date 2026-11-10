@@ -35,6 +35,8 @@ export type ProposeInput = {
   conversationId: string
   productId: string
   merchantDomain: string | null // the store of the option the person chose
+  source?: 'catalog' | 'link' // 'link': found from a link the person pasted
+  sourceUrl?: string | null
   budgetCents: number | null
 }
 
@@ -85,6 +87,8 @@ export async function proposeMandate(input: ProposeInput): Promise<Decision> {
         accountId: account.id,
         conversationId: input.conversationId,
         productId: product.id,
+        productSource: input.source ?? 'catalog',
+        sourceUrl: input.sourceUrl ?? null,
         offerDomain: domain,
         title: product.title,
         merchant: store?.name ?? domain,

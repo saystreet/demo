@@ -122,6 +122,8 @@ model Order {
   shipTo            Json       @map("ship_to")
   carrier           String?
   trackingNumber    String?    @map("tracking_number")
+  /// The tracker added to the PayPal order when it shipped (Orders v2 /track).
+  paypalTrackerId   String?    @map("paypal_tracker_id")
   estimatedDelivery DateTime?  @map("estimated_delivery") @db.Date
   refundId          String?    @map("refund_id")
   createdAt         DateTime   @default(now()) @map("created_at") @db.Timestamptz

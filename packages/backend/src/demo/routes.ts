@@ -1,12 +1,15 @@
-import type { ApiError, OptionCard } from '@saystreet/shared'
+import type { AdvanceOrderResponse, ApiError, OptionCard } from '@saystreet/shared'
 import { Hono } from 'hono'
 import { recentAudit } from '../audit'
 import { type AuthEnv, requireAccount } from '../auth'
 import { findConversation } from '../conversations/service'
 import { db } from '../db'
+import { findOrder, toOrderView } from '../orders/service'
+import { advanceOrder, latestOpenOrder } from '../orders/shipping'
+import { templates } from '../templates'
 
 // Demo tools: let a judge make the store's price change between choosing and paying,
-// and see the engine's log. Each account only affects itself.
+// move an order through delivery, and see the engine's log. Each account only affects itself.
 
 export const demoRoutes = new Hono<AuthEnv>()
 
@@ -40,6 +43,20 @@ demoRoutes.post('/demo/price-override', requireAccount, async (c) => {
     update: { itemCents },
   })
   return c.json({ ok: true, product_id: option.product_id, item_cents: itemCents })
+})
+
+// POST /api/demo/advance-order { order_id? }  "Ship latest order" / "Mark delivered".
+// processing → shipped (tracking number added to the PayPal order) → delivered.
+// Without order_id: the newest real purchase that isn't delivered yet.
+demoRoutes.post('/demo/advance-order', requireAccount, async (c) => {
+  const account = c.var.account
+  const body = await c.req.json<{ order_id?: unknown }>().catch(() => ({}) as { order_id?: unknown })
+  const order =
+    typeof body.order_id === 'string' ? await findOrder(account.id, body.order_id) : await latestOpenOrder(account.id)
+  if (!order) return c.json<AdvanceOrderResponse>({ order: null, step: null, say: templates.nothingToShip() }, 404)
+  const result = await advanceOrder(order)
+  if (!result) return c.json<AdvanceOrderResponse>({ order: toOrderView(order), step: null, say: templates.nothingToShip() }, 409)
+  return c.json<AdvanceOrderResponse>({ order: toOrderView(result.order), step: result.step, say: result.say })
 })
 
 // GET /api/audit  The engine's last 20 lines for this account, newest first.

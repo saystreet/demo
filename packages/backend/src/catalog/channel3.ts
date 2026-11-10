@@ -5,6 +5,7 @@ import { requireEnv } from '../env'
 
 const BASE_URL = 'https://api.trychannel3.com'
 const TIMEOUT_MS = 8_000
+const LOOKUP_TIMEOUT_MS = 20_000
 
 export type C3Price = { price?: number; amount?: number; compare_at_price?: number | null; currency: string }
 
@@ -57,12 +58,12 @@ export class Channel3Error extends Error {
   }
 }
 
-async function request<T>(method: 'GET' | 'POST', path: string, body?: unknown): Promise<T> {
+async function request<T>(method: 'GET' | 'POST', path: string, body?: unknown, timeoutMs = TIMEOUT_MS): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
     method,
     headers: { 'x-api-key': requireEnv('CHANNEL3_API_KEY'), 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
-    signal: AbortSignal.timeout(TIMEOUT_MS),
+    signal: AbortSignal.timeout(timeoutMs),
   })
   const text = await res.text()
   // 402 means the credits ran out; callers fall back to fixtures like for any other error.
@@ -73,8 +74,14 @@ async function request<T>(method: 'GET' | 'POST', path: string, body?: unknown):
 export const channel3 = {
   search: (req: C3SearchRequest) => request<C3SearchResponse>('POST', '/v1/search', req),
   product: (id: string) => request<C3Product>('GET', `/v1/products/${encodeURIComponent(id)}`),
+  // Reads the store page live when needed, so it gets more time than other calls.
   lookup: (url: string, maxStalenessHours: number) =>
-    request<{ product: C3Product }>('POST', '/v1/lookup', { url, max_staleness_hours: maxStalenessHours, realtime_fetch: true }),
+    request<{ product: C3Product }>(
+      'POST',
+      '/v1/lookup',
+      { url, max_staleness_hours: maxStalenessHours, realtime_fetch: true },
+      LOOKUP_TIMEOUT_MS,
+    ),
   websites: (query: string) =>
     request<{ websites: C3Website[] }>('GET', `/v1/websites/search?query=${encodeURIComponent(query)}`),
 }

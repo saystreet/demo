@@ -35,6 +35,14 @@ export type OrderView = OrderSummary & {
   events: { status: string; note: string | null; created_at: string }[] // oldest first
 }
 
+// POST /api/demo/advance-order  ("Ship latest order", "Mark delivered" in Demo tools)
+// The phrase is also added to the order's chat. 404/409 when there is nothing to move.
+export type AdvanceOrderResponse = {
+  order: OrderView | null
+  step: 'shipped' | 'delivered' | null
+  say: string // "Your … has shipped. SayStreet Demo Carrier, tracking ending 5736. It should arrive Friday."
+}
+
 // POST /api/orders/:id/return
 export type ReturnResponse = {
   order: OrderView
