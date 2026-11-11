@@ -13,6 +13,7 @@ import { catalogRoutes } from './catalog/routes'
 import { conversationRoutes } from './conversations/routes'
 import { demoRoutes } from './demo/routes'
 import { port } from './env'
+import { schedulePruning } from './db/prune'
 import { releaseStuckPayments } from './mandate/engine'
 import { mandateRoutes } from './mandate/routes'
 import { orderRoutes } from './orders/routes'
@@ -86,6 +87,8 @@ const server = serve({ fetch: app.fetch, port }, (info) => {
   releaseStuckPayments()
     .then((n) => n && console.log(`Released ${n} payment(s) interrupted by a restart`))
     .catch((error) => console.error('Releasing interrupted payments failed', error))
+  // Usage counters and cache rows past their use, now and every six hours.
+  schedulePruning()
 })
 
 // A deploy sends SIGTERM: stop taking requests and let the ones in flight (a PayPal call can take

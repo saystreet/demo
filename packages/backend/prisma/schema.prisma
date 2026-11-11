@@ -27,8 +27,8 @@ model Account {
   shipPostal            String    @map("ship_postal")
   shipCountry           String    @default("US") @map("ship_country")
   vaultId               String?   @map("vault_id")
-  perPurchaseLimitCents Int       @default(8000) @map("per_purchase_limit_cents")
-  weeklyLimitCents      Int       @default(20000) @map("weekly_limit_cents")
+  perPurchaseLimitCents Int       @default(25000) @map("per_purchase_limit_cents")
+  weeklyLimitCents      Int       @default(100000) @map("weekly_limit_cents")
   voiceMode             VoiceMode @map("voice_mode")
   speechRate            Float     @default(1) @map("speech_rate") @db.Real
   soundsOn              Boolean   @default(true) @map("sounds_on")
@@ -91,6 +91,7 @@ model Mandate {
   order Order?
 
   @@index([accountId, status])
+  @@index([conversationId, createdAt])
   @@map("mandates")
 }
 
@@ -132,6 +133,7 @@ model Order {
   events OrderEvent[]
 
   @@index([accountId, createdAt(sort: Desc)])
+  @@index([conversationId])
   @@map("orders")
 }
 
