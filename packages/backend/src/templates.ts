@@ -45,6 +45,10 @@ export const templates = {
   linkFound: (option: OptionCard) =>
     `Found it: ${option.title} from ${option.merchant}, ${formatUSD(option.total_cents)} with shipping. Say "buy it" for the total, or ask me about it.`,
   linkFailed: () => "I couldn't read that link. Try again, or tell me what you're looking for.",
+  // The page can't be opened, but its address says what it is: search for that instead.
+  linkSimilar: (query: string) => `I couldn't open that exact page, so here is what I found for ${query}.`,
+  // Nothing to go on: ask for words instead of a dead end.
+  linkUnclear: () => "I couldn't open that page, and I can't tell what it is. Tell me what you're looking for, and I'll find it.",
   linkNotProduct: () => "That link isn't a product page. Open the product itself and copy its link.",
   askAbout: (title: string) => `Ask me anything about the ${title}, or say "buy it".`,
   noOptions: () => 'I found nothing that fits. Try different words or a higher budget.',
