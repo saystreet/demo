@@ -1,0 +1,40 @@
+# Your own copy of SayStreet on Render: one web service and one Postgres database.
+# The "Deploy to Render" button in the README opens this file. After the first deploy,
+# connect the sandbox buyer at /admin/vault and add DEMO_VAULT_ID (see the README).
+services:
+  - type: web
+    runtime: node # Node version from .nvmrc, pnpm from pnpm-lock.yaml
+    name: saystreet
+    plan: free
+    buildCommand: pnpm install --frozen-lockfile && pnpm build
+    startCommand: pnpm start # applies migrations, then serves the API and the app
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: saystreet-db
+          property: connectionString
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: ADMIN_TOKEN
+        generateValue: true
+      - key: PAYPAL_BASE_URL
+        value: https://api-m.sandbox.paypal.com
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_CLIENT_SECRET
+        sync: false
+      - key: CHANNEL3_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: LLM_MODEL
+        value: gpt-6-luna
+      - key: STT_MODEL
+        value: gpt-transcribe
+
+databases:
+  - name: saystreet-db
+    plan: free
+    postgresMajorVersion: '18'
+    databaseName: saystreet

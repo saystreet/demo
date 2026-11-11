@@ -14,8 +14,9 @@ export function requireEnv(name: string): string {
 
 export const port = Number(env('PORT') ?? 8080)
 
+// APP_URL wins; on Render without it, the service's own onrender.com address.
 export function appUrl(): string {
-  return (env('APP_URL') ?? `http://localhost:${port}`).replace(/\/+$/, '')
+  return (env('APP_URL') ?? env('RENDER_EXTERNAL_URL') ?? `http://localhost:${port}`).replace(/\/+$/, '')
 }
 
 // Flat shipping added to every item price (Channel3 has no shipping data).
