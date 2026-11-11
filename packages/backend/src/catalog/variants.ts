@@ -10,8 +10,13 @@ import type { C3Product } from './channel3'
 
 // Clothing and shoes are bought in a size, whether or not the listing lists sizes.
 const SIZED = /shoe|footwear|sneaker|boot|sandal|apparel|clothing|shirt|pants|jeans|dress|jacket|coat|sweater|hoodie|skirt|shorts|socks|underwear|swimwear/
+// "Apparel & Accessories" also holds watches, jewelry and bags: those have no size to say, and asking an
+// Apple Watch buyer "which size?" gets "size 10" for "Series 10".
+const NOT_SIZED = /watch|jewel|electronic|computer|phone|handbag|luggage|sunglasses|wearable/
 export function needsSize(product: C3Product): boolean {
-  return (product.category?.path ?? []).some((p) => SIZED.test(p.slug))
+  const path = product.category?.path ?? []
+  if (path.some((p) => NOT_SIZED.test(p.slug))) return false
+  return path.some((p) => SIZED.test(p.slug))
 }
 
 export function choicesFor(product: C3Product): Choice[] {
@@ -213,4 +218,19 @@ export function sizeFromQuery(query: string): { query: string; size: string | nu
   const raw = m[1]!
   const size = normalise(raw) || raw
   return { query: query.replace(m[0], ' ').replace(/\s+/g, ' ').trim(), size }
+}
+
+// The choices made on a card ("Size" → "10") put on the option's own choices. A listed value must be one of
+// its values; a choice with no list (a shoe size the listing doesn't give) takes what was typed, trimmed
+// and cut short. A value that is another listing (a colour with its own price) is not chosen here: the card
+// sends that listing's own product. Anything else is ignored, and a required choice left empty stays so.
+export function applySelection(choices: Choice[], selection: { name: string; value: string }[] | undefined): Choice[] {
+  if (!selection?.length) return choices
+  return choices.map((choice) => {
+    const said = selection.find((s) => s.name.toLowerCase() === choice.name.toLowerCase())?.value?.trim()
+    if (!said) return choice
+    if (choice.values.length === 0) return { ...choice, chosen: said.slice(0, 40) }
+    const match = choice.values.find((v) => v.label.toLowerCase() === said.toLowerCase() && !v.product_id)
+    return match ? { ...choice, chosen: match.label } : choice
+  })
 }

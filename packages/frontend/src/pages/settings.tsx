@@ -13,7 +13,7 @@ import { type FormEvent, type ReactNode, useEffect, useRef, useState } from 'rea
 import { flushSync } from 'react-dom'
 import { connectPayPal, disconnectPayPal, keys, useMe, useUpdateAccount } from '../api/queries'
 import { DemoSection } from '../components/demo-tools'
-import { tookWords } from '../components/paypal'
+import { PayPalConnection } from '../components/paypal-connection'
 import { Badge, ErrorLine, LoadingLine, PageTitle, Section, usePageTitle } from '../components/page'
 import { Button } from '../components/ui/button'
 import { ChoiceGroup } from '../components/ui/choice-group'
@@ -101,7 +101,6 @@ function SettingsForm({ account }: { account: AccountView }) {
 function PayPalSection({ account }: { account: AccountView }) {
   const client = useQueryClient()
   const { say } = useAnnouncer()
-  const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null)
 
   // Back from PayPal: ?paypal=connected | cancelled | failed. Said once, then taken off the address.
@@ -109,85 +108,21 @@ function PayPalSection({ account }: { account: AccountView }) {
     const params = new URLSearchParams(window.location.search)
     const outcome = params.get('paypal')
     if (!outcome) return
-    const text =
-      outcome === 'connected'
-        ? `Your PayPal sandbox account is connected. Purchases now pay with it.${tookWords(params)}`
-        : outcome === 'cancelled'
-          ? 'Cancelled on PayPal. Nothing changed.'
-          : "PayPal didn't connect. Nothing changed. Try again."
-    setStatus({ ok: outcome === 'connected', text })
-    say([text])
+    // Connected: the toast (raised once, by the app shell) answers. Cancelled or failed: said, and shown.
+    if (outcome !== 'connected') {
+      const text = outcome === 'cancelled' ? 'Cancelled on PayPal. Nothing changed.' : "PayPal didn't connect. Nothing changed. Try again."
+      setStatus({ ok: false, text })
+      say([text])
+    }
     void client.invalidateQueries({ queryKey: keys.me })
     params.delete('paypal')
     params.delete('took')
     window.history.replaceState(null, '', `${window.location.pathname}${params.size ? `?${params}` : ''}`)
   }, [client, say])
 
-  const connect = async () => {
-    if (busy) return
-    setBusy(true)
-    say(['Opening PayPal…'], 'status')
-    try {
-      const { approve_url } = await connectPayPal('settings')
-      window.location.assign(approve_url)
-    } catch (error) {
-      const text = error instanceof ApiError && error.say ? error.say : "Couldn't reach PayPal. Try again."
-      setStatus({ ok: false, text })
-      say([text])
-      setBusy(false)
-    }
-  }
-
-  const useDemoBuyer = async () => {
-    if (busy) return
-    setBusy(true)
-    try {
-      client.setQueryData(keys.me, await disconnectPayPal())
-      const text = 'Back to the sandbox demo buyer.'
-      setStatus({ ok: true, text })
-      say([text])
-    } catch {
-      const text = "Couldn't change it. Try again."
-      setStatus({ ok: false, text })
-      say([text])
-    } finally {
-      setBusy(false)
-    }
-  }
-
   return (
     <Section title="PayPal">
-      <p className="flex flex-wrap items-center gap-3 text-lg">
-        <PaypalLogo aria-hidden="true" size={24} weight="fill" className="shrink-0" />
-        {account.wallet.label}
-        <Badge tone={account.wallet.connected ? 'good' : 'warn'}>{account.wallet.connected ? 'Connected' : 'Not connected'}</Badge>
-      </p>
-      {account.wallet.email && (
-        <p className="mt-2 [overflow-wrap:anywhere]">
-          <span className="text-ink-muted">PayPal account: </span>
-          <span className="font-semibold">{account.wallet.email}</span>
-        </p>
-      )}
-      <p className="mt-1 text-ink-muted">
-        {account.wallet.own
-          ? 'Purchases pay with the PayPal sandbox account you approved. No real money moves.'
-          : 'Pays with a sandbox test buyer. No real money moves.'}
-      </p>
-      <div className="mt-4 flex flex-wrap items-center gap-3">
-        {account.wallet.own ? (
-          <Button variant="secondary" aria-disabled={busy || undefined} onClick={useDemoBuyer}>
-            Use the demo buyer again
-          </Button>
-        ) : (
-          <Button variant="secondary" pending={busy} onClick={connect}>
-            <PaypalLogo aria-hidden="true" size={20} weight="fill" />
-            Use your own PayPal sandbox account
-          </Button>
-        )}
-      </div>
-      {!account.wallet.own && (
-        <p className="mt-2 text-sm text-ink-muted">Opens PayPal's sandbox login, then returns here. Use a sandbox account, never your real one.</p>
-      )}
+      <PayPalConnection account={account} next="settings" />
       {status && <SaveStatus ok={status.ok} text={status.text} />}
     </Section>
   )

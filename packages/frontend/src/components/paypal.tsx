@@ -1,5 +1,9 @@
 import type { OrderSummary, PayPalStep } from '@saystreet/shared'
 import { ArrowSquareOut, PaypalLogo } from '@phosphor-icons/react'
+import type { AccountView } from '@saystreet/shared'
+import { api } from '../lib/api'
+import { play } from '../lib/sounds'
+import { toast } from '../lib/toast'
 
 // PayPal on the receipt, the order page and the order lists: what PayPal answered, in its own words
 // and ids, so it's plain that a real PayPal sandbox payment happened.
@@ -64,4 +68,14 @@ export function PayPalLine({ order }: { order: OrderSummary }) {
       {words} (sandbox)
     </span>
   )
+}
+
+// Back from PayPal with the account connected, in the chat or in Settings: a short sound and one toast that says
+// whose account it is and what came from it. The email comes from the account, not from the address bar.
+export function announceConnected(params: URLSearchParams) {
+  play('done')
+  const took = tookWords(params).trim()
+  void api<AccountView>('/me')
+    .then((account) => toast({ title: 'PayPal connected', lines: [account.wallet.email ?? 'Your sandbox account', ...(took ? [took] : [])] }))
+    .catch(() => toast({ title: 'PayPal connected', lines: took ? [took] : [] }))
 }

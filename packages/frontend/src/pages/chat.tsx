@@ -1,4 +1,4 @@
-import type { ConversationState, MandateView, Message, TurnResponse } from '@saystreet/shared'
+import type { ConversationState, MandateView, Message, TurnRequest, TurnResponse } from '@saystreet/shared'
 import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
@@ -14,11 +14,11 @@ import {
   useConversation,
   useMe,
 } from '../api/queries'
-import { MandateCard, OptionsCard, OrdersCard } from '../components/chat/cards'
+import { type BuyChoice, MandateCard, OptionsCard, OrdersCard } from '../components/chat/cards'
 import { BrailleCell } from '../components/braille'
 import { Composer } from '../components/chat/composer'
+import { Starters, STARTERS } from '../components/chat/starters'
 import { ErrorLine, LoadingLine, PageTitle, usePageTitle } from '../components/page'
-import { tookWords } from '../components/paypal'
 import { ApiError } from '../lib/api'
 import { useAnnouncer } from '../lib/announcer'
 import { cn } from '../lib/cn'
@@ -37,7 +37,6 @@ const HEADING = 'What are you shopping for today?'
 const ERROR = 'Something went wrong on my side. Nothing was paid. Try again.'
 // The welcome's three jobs. Buying starts from a search; tracking and returning use the sample
 // orders every demo account starts with, each landing on exactly one of them.
-const STARTERS = ['Buy a whistling kettle under $40', 'Where is my kettle?', 'Return my French press']
 
 type Work = 'idle' | 'transcribing' | 'thinking'
 // What is happening, and in which chat it started. The page stays mounted across chats, so a
@@ -80,14 +79,8 @@ export default function ChatPage() {
     const params = new URLSearchParams(window.location.search)
     const outcome = params.get('paypal')
     if (!outcome) return
-    const text =
-      outcome === 'connected'
-        ? `Your PayPal sandbox account is connected. Purchases pay with it.${tookWords(params)}`
-        : outcome === 'cancelled'
-          ? 'Cancelled on PayPal. Purchases pay with the sandbox demo buyer.'
-          : "PayPal didn't connect, so purchases pay with the sandbox demo buyer. You can try again in Settings."
-    say([text])
-    if (outcome !== 'connected') setNotice({ text, chat: id })
+    // Connected: the toast (raised once, by the app shell) answers. Cancelled or failed: the PayPal step says so.
+    if (outcome !== 'connected') say([outcome === 'cancelled' ? 'Cancelled on PayPal. The sandbox buyer will pay.' : "PayPal didn't connect, so purchases pay with the sandbox demo buyer."])
     void client.invalidateQueries({ queryKey: keys.me })
     window.history.replaceState(window.history.state, '', window.location.pathname)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on arrival
@@ -182,7 +175,7 @@ export default function ChatPage() {
   }, [])
 
   const send = useCallback(
-    async (text: string, input: 'voice' | 'text') => {
+    async (text: string, input: 'voice' | 'text', buy?: TurnRequest['buy']) => {
       const origin = id
       stopVoice()
       play('sent')
@@ -191,7 +184,7 @@ export default function ChatPage() {
       // A screen reader hears it once, through the live region; the line in the chat is for the eyes.
       say(['Thinking…'], 'status')
       try {
-        handle(await sendTurn({ conversation_id: origin, text, input }), origin)
+        handle(await sendTurn({ conversation_id: origin, text, input, ...(buy ? { buy } : {}) }), origin)
         return true
       } catch (error) {
         fail(error, origin)
@@ -375,12 +368,19 @@ export default function ChatPage() {
     },
     [client, say, fail, id],
   )
+  // Buy on a card is the person asking, in the chat, to buy that product: their line says "Buy …", and the
+  // product itself (never found again by its title) and what they chose on the card go with it. The server
+  // asks for what is missing or prepares the payment, so every Buy, on any list, behaves the same way.
   const onChoose = useCallback(
-    (n: number) => {
+    (choice: BuyChoice) => {
       if (phase !== 'idle') return
-      play('select')
       focusTalk()
-      void send(`Buy option ${n}`, 'text')
+      const choices = choice.selection.map((s) => s.value).join(', ')
+      void send(`Buy ${choice.title}${choices ? `, ${choices}` : ''}`.slice(0, 300), 'text', {
+        product_id: choice.product_id,
+        merchant_domain: choice.merchant_domain,
+        selection: choice.selection,
+      })
     },
     [phase, focusTalk, send],
   )
@@ -484,6 +484,7 @@ export default function ChatPage() {
               onExtend={onExtend}
               onChoose={onChoose}
               onMore={message.id === latestOptionsId ? onMore : null}
+              active={message.id === latestOptionsId}
             />
           ))}
           {pendingText && (
@@ -570,7 +571,8 @@ type ItemProps = {
   onExpiring: () => void
   onExpired: (mandate: MandateView) => void
   onExtend: (mandate: MandateView) => void
-  onChoose: (n: number) => void
+  onChoose: (choice: BuyChoice) => void
+  active: boolean // the newest list of options in the chat
   onMore: (() => void) | null // set on the latest options only
 }
 
@@ -582,7 +584,7 @@ function optionsIntro(text: string) {
   return match ? match[1] : text
 }
 
-function MessageItem({ message, conversationId, liveMandate, busy, onPay, onCancel, onExpiring, onExpired, onExtend, onChoose, onMore }: ItemProps) {
+function MessageItem({ message, conversationId, liveMandate, busy, onPay, onCancel, onExpiring, onExpired, onExtend, onChoose, onMore, active }: ItemProps) {
   const mine = message.role === 'user'
   const attachment = message.attachment
   const text = attachment?.kind === 'options' ? optionsIntro(message.text) : message.text
@@ -606,6 +608,8 @@ function MessageItem({ message, conversationId, liveMandate, busy, onPay, onCanc
           conversationId={conversationId}
           busy={busy}
           onChoose={onChoose}
+          active={active}
+          paying={liveMandate !== null}
           // The server offers "more" in the spoken list when the search has further options.
           onMore={onMore && message.text.includes('"more"') ? onMore : null}
         />
@@ -624,23 +628,5 @@ function MessageItem({ message, conversationId, liveMandate, busy, onPay, onCanc
       )}
       {attachment?.kind === 'orders' && <OrdersCard orders={attachment.orders} />}
     </li>
-  )
-}
-
-function Starters({ items, onPick }: { items: string[]; onPick: (text: string) => void }) {
-  return (
-    <ul className="flex flex-wrap justify-center gap-2">
-      {items.map((text) => (
-        <li key={text}>
-          <button
-            type="button"
-            onClick={() => onPick(text)}
-            className="min-h-11 rounded-full border border-edge px-4 text-base font-semibold hover:border-ink hover:bg-surface-1"
-          >
-            {text}
-          </button>
-        </li>
-      ))}
-    </ul>
   )
 }

@@ -1,7 +1,9 @@
 import { type ReactNode, useEffect } from 'react'
-import { createBrowserRouter, redirect, useNavigate } from 'react-router'
+import { createBrowserRouter, Outlet, redirect, useNavigate } from 'react-router'
 import { orderQuery, ordersQuery, queryClient, useMe, productQuery } from './api/queries'
+import { Welcome } from './components/chat/welcome'
 import { RouteError } from './components/route-error'
+import { Toaster } from './components/ui/toaster'
 import { SIGNED_OUT_EVENT } from './lib/api'
 import { useAnnouncer } from './lib/announcer'
 import { getToken } from './lib/session'
@@ -35,8 +37,20 @@ function SignedIn({ children }: { children: ReactNode }) {
   return children
 }
 
+// The pages, and above them what outlives a change of page: the first run's dialog and the toasts.
+function Root() {
+  return (
+    <>
+      <Outlet />
+      <Welcome />
+      <Toaster />
+    </>
+  )
+}
+
 export const router = createBrowserRouter([
   {
+    Component: Root,
     // The first paint waits for the page's code: the dark background for a moment, not a loading line.
     HydrateFallback: () => null,
     ErrorBoundary: RouteError,

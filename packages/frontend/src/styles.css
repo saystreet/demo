@@ -160,3 +160,25 @@
 .loading-line {
   animation: loading-reveal 200ms ease-out 400ms both;
 }
+
+/* A toast slides up into the corner, once. */
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.75rem);
+  }
+}
+.toast-in {
+  animation: toast-in 200ms var(--ease-out-expo);
+}
+
+/* The next step of the first run fades in; the frame around it doesn't move. */
+@keyframes step-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+.step-in {
+  animation: step-in 180ms var(--ease-out-expo);
+}

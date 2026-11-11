@@ -194,10 +194,10 @@ export const templates = {
   notOffered: (said: string, choices: { name: string; list: string }[]) =>
     `I don't see ${said}. It comes in ${choices.map((c) => `${c.name.toLowerCase()}: ${c.list}`).join('; ')}.`,
   whichValue: (name: string, labels: string[]) => {
-    if (labels.length === 0) return `Which ${name.toLowerCase()}? Say it, like "size 10". The listing doesn't list them, so it goes on the order as you say it.`
+    if (labels.length === 0) return `Which ${name.toLowerCase()}? Say it, like "size 10", or type it on the card.`
     const shown = labels.slice(0, 8)
     const list = `${shown.slice(0, -1).join(', ')}${shown.length > 1 ? ' or ' : ''}${shown.at(-1)}${labels.length > 8 ? `, and ${labels.length - 8} more` : ''}`
-    return `Which ${name.toLowerCase()}? ${list}.`
+    return `Which ${name.toLowerCase()}? ${list}. Say it, or choose it on the card.`
   },
   variantSoldOut: (label: string) => `${label} isn't available right now.`,
   variantChosen: (title: string, label: string, merchant: string, totalCents: number, otherStoreThan: string | null) =>

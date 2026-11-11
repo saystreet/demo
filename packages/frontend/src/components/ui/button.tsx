@@ -7,10 +7,11 @@ export type ButtonVariant = 'primary' | 'secondary' | 'quiet' | 'danger'
 export type ButtonSize = 'md' | 'lg'
 
 const VARIANTS: Record<ButtonVariant, string> = {
-  primary: 'bg-ink text-accent-ink hover:bg-white active:bg-ink-muted',
-  secondary: 'border border-edge text-ink hover:border-ink hover:bg-surface-2 active:bg-surface-3',
-  quiet: 'text-ink-muted underline underline-offset-4 hover:text-ink px-2',
-  danger: 'border border-bad text-bad hover:bg-bad hover:text-accent-ink',
+  primary: 'bg-ink text-accent-ink hover:bg-white active:bg-ink-muted aria-disabled:hover:bg-ink aria-disabled:active:bg-ink',
+  secondary:
+    'border border-edge text-ink hover:border-ink hover:bg-surface-2 active:bg-surface-3 aria-disabled:hover:border-edge aria-disabled:hover:bg-transparent aria-disabled:active:bg-transparent',
+  quiet: 'text-ink-muted underline underline-offset-4 hover:text-ink px-2 aria-disabled:hover:text-ink-muted',
+  danger: 'border border-bad text-bad hover:bg-bad hover:text-accent-ink aria-disabled:hover:bg-transparent aria-disabled:hover:text-bad',
 }
 
 const SIZES: Record<ButtonSize, string> = {

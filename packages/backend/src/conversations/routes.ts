@@ -13,16 +13,17 @@ import { nextOptions } from '../agent/tools'
 import { runAgentTurn } from '../agent/turn'
 import { isAffirmation, isCancelOrder, isMoreRequest, isMoreTime, isReadOptions, parseIntent, repeatOptionN } from '../amount/parse'
 import { type AuthEnv, requireAccount } from '../auth'
-import { CatalogUnavailable, getProductView, ProductNotFound } from '../catalog/service'
+import { CatalogUnavailable, getProductView, optionFromProduct, ProductNotFound } from '../catalog/service'
+import { applySelection } from '../catalog/variants'
 import { db } from '../db'
 import { Prisma } from '../generated/prisma/client'
 import { clientIp, consume, LIMITS } from '../limits'
-import { activeMandate, cancelMandate, cancelMandatesInConversation, confirmMandate, extendMandate, mandatePhrase, toMandateView } from '../mandate/engine'
+import { activeMandate, cancelMandate, cancelMandatesInConversation, confirmMandate, extendMandate, mandatePhrase, proposeMandate, toMandateView } from '../mandate/engine'
 import { canReturn, findOrder, toOrderSummary } from '../orders/service'
 import { isReturnConfirmation, refundOrder, returnRefusal, takePendingReturn, trackingPhrase } from '../orders/tracking'
 import { templates } from '../templates'
 import { respond } from './respond'
-import { setLastSearch } from './search-memory'
+import { getLastSearch, setLastSearch } from './search-memory'
 import { addMessages, conversationState, createConversation, findConversation, listConversations, titleFrom, toSummary } from './service'
 import { jsonBody } from '../http'
 
@@ -136,6 +137,48 @@ conversationRoutes.post('/turn', requireAccount, async (c) => {
     if (isReadOptions(text) && current?.length) {
       const reread = templates.options(current, null, { limitCents: account.perPurchaseLimitCents })
       return c.json<TurnResponse>(await respond(conversation.id, { already, messages: [{ role: 'system', source: 'system', text: reread }], sound: 'reply' }))
+    }
+
+    // The Buy button on a card: the product itself and the choices made on the card arrive with the line "Buy …"
+    // the person sees. Handled here in plain code, with no model turn and without touching the options the
+    // numbers refer to or the search "more" continues: a required choice still empty is asked for, otherwise the
+    // payment is prepared and its card shown. Another payment waiting in this chat is dropped, and said.
+    const buy = parseBuy(body.buy)
+    if (buy) {
+      const dropped = waiting ? [{ role: 'system' as const, source: 'system' as const, text: templates.paymentDropped(waiting.title) }] : []
+      if (waiting) await cancelMandatesInConversation(account.id, conversation.id)
+      const found = await optionFromProduct(buy.product_id, buy.merchant_domain, 1, account.perPurchaseLimitCents).catch(() => null)
+      if (!found) {
+        return c.json<TurnResponse>(await respond(conversation.id, { already, messages: [...dropped, { role: 'system', source: 'system', text: templates.productGone() }], sound: 'error' }))
+      }
+      const option: OptionCard = found.choices ? { ...found, choices: applySelection(found.choices, buy.selection) } : found
+      const missing = option.choices?.find((ch) => ch.required && !ch.chosen)
+      if (missing) {
+        return c.json<TurnResponse>(
+          await respond(conversation.id, {
+            already,
+            messages: [
+              ...dropped,
+              { role: 'system', source: 'system', text: templates.whichValue(missing.name, missing.values.map((v) => v.label)), attachment: { kind: 'options', options: [option] } },
+            ],
+            sound: 'reply',
+          }),
+        )
+      }
+      // A size or other configuration of this listing goes on the order: "Fresh Foam 680v9, Size 10".
+      const selection = (option.choices ?? []).filter((ch) => ch.chosen && !ch.values.some((v) => v.product_id)).map((ch) => `${ch.name} ${ch.chosen}`)
+      const last = await getLastSearch(conversation.id)
+      const decision = await proposeMandate({
+        account,
+        conversationId: conversation.id,
+        productId: option.product_id,
+        merchantDomain: option.merchant_domain,
+        source: option.source,
+        sourceUrl: option.source_url,
+        budgetCents: last?.budgetCents ?? null,
+        selection,
+      })
+      return c.json<TurnResponse>(await respond(conversation.id, { already, messages: [...dropped, ...decision.messages], decision, sound: decision.sound }))
     }
 
     // "Pay …" with nothing waiting, after a payment in this chat (paid a moment ago, expired,
@@ -340,4 +383,18 @@ export async function withChatLock<T>(id: string, run: () => Promise<T>): Promis
   } finally {
     if (chatLocks.get(id) === current) chatLocks.delete(id)
   }
+}
+
+// The `buy` field of a turn, checked: a product id, a store and a few short choices.
+function parseBuy(value: unknown): { product_id: string; merchant_domain: string; selection: { name: string; value: string }[] } | null {
+  if (typeof value !== 'object' || value === null) return null
+  const v = value as { product_id?: unknown; merchant_domain?: unknown; selection?: unknown }
+  if (typeof v.product_id !== 'string' || !v.product_id || typeof v.merchant_domain !== 'string') return null
+  const selection = Array.isArray(v.selection)
+    ? v.selection
+        .filter((x): x is { name: string; value: string } => typeof x?.name === 'string' && typeof x?.value === 'string')
+        .slice(0, 8)
+        .map((x) => ({ name: x.name.slice(0, 40), value: x.value.slice(0, 40) }))
+    : []
+  return { product_id: v.product_id, merchant_domain: v.merchant_domain, selection }
 }

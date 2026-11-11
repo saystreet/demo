@@ -2,7 +2,6 @@ import { List, X } from '@phosphor-icons/react'
 import { Dialog } from 'radix-ui'
 import { useEffect, useRef, useState } from 'react'
 import { Link, Outlet, useLocation, useNavigationType } from 'react-router'
-import { Welcome } from './chat/welcome'
 import { Sidebar } from './sidebar'
 
 // The signed-in app: the sidebar on the left (a sheet behind "Menu" on phones), the page in
@@ -106,7 +105,6 @@ export function AppShell() {
       <main id="main" className="min-w-0">
         <Outlet />
       </main>
-      <Welcome onDone={() => document.getElementById('talk')?.focus()} />
     </div>
   )
 }

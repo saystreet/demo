@@ -48,6 +48,9 @@ export type TurnRequest = {
   conversation_id?: string // omit to start a new chat
   text: string // up to 500 characters
   input: 'voice' | 'text'
+  // The Buy button on an option card: the product itself (never found by its title) and the choices made
+  // on the card ("Size", "10"). `text` is what the person's line in the chat says ("Buy …").
+  buy?: { product_id: string; merchant_domain: string; selection?: { name: string; value: string }[] }
 }
 
 // Also returned by POST /api/mandates/:id/pay and /cancel, and POST /api/products/buy.

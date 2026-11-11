@@ -137,11 +137,9 @@ export const Composer = forwardRef<HTMLInputElement, Props>(function Composer(
 const dollars = (cents: number) => `$${(cents / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })}`
 
 // What is left to spend, under the input where the buying happens: the shortcut on the left (with a
-// keyboard), the weekly limit on the right, one tap to change it. A ring, not a bar, and words first.
-function LimitsLine({ showShortcut }: { showShortcut?: boolean }) {
-  const { data: me } = useMe()
-  if (!me) return <div className="h-11" />
-  const { spent_this_week_cents: spent, weekly_cents: weekly } = me.limits
+// keyboard), the weekly limit on the right, one tap to change it. A ring, not a bar, and words first. Before
+// there is an account (the first screen) it shows the defaults, so the layout is the one the chat will have.
+export function LimitsView({ spent, weekly, showShortcut }: { spent: number; weekly: number; showShortcut?: boolean }) {
   const share = weekly > 0 ? Math.min(1, spent / weekly) : 0
   const r = 7
   const circumference = 2 * Math.PI * r
@@ -174,4 +172,9 @@ function LimitsLine({ showShortcut }: { showShortcut?: boolean }) {
       </Link>
     </div>
   )
+}
+
+function LimitsLine({ showShortcut }: { showShortcut?: boolean }) {
+  const { data: me } = useMe()
+  return <LimitsView spent={me?.limits.spent_this_week_cents ?? 0} weekly={me?.limits.weekly_cents ?? 100000} showShortcut={showShortcut} />
 }

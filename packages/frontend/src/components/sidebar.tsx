@@ -80,18 +80,6 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
 
       <ul className="grid gap-1 border-t border-line pt-4">
         <li>
-          <NavLink to="/orders" onClick={onNavigate} className={navClass} aria-current={onOrdersList ? 'page' : 'true'}>
-            <Package aria-hidden="true" size={22} />
-            Orders
-          </NavLink>
-        </li>
-        <li>
-          <NavLink to="/settings" onClick={onNavigate} className={navClass}>
-            <Sliders aria-hidden="true" size={22} />
-            Settings
-          </NavLink>
-        </li>
-        <li>
           <button
             type="button"
             onClick={() => {
@@ -104,6 +92,18 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             How it works
           </button>
         </li>
+        <li>
+          <NavLink to="/orders" onClick={onNavigate} className={navClass} aria-current={onOrdersList ? 'page' : 'true'}>
+            <Package aria-hidden="true" size={22} />
+            Orders
+          </NavLink>
+        </li>
+        <li>
+          <NavLink to="/settings" onClick={onNavigate} className={navClass}>
+            <Sliders aria-hidden="true" size={22} />
+            Settings
+          </NavLink>
+        </li>
       </ul>
       {/* Always in view, and one line: what this is, wherever a judge lands. */}
       <a
@@ -112,7 +112,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         rel="noopener noreferrer"
         className="flex min-h-11 items-center px-3 text-sm text-ink-muted underline decoration-edge underline-offset-4 hover:text-ink hover:decoration-ink"
       >
-        PayPal AI Hackathon demo<span className="sr-only"> (opens in a new tab)</span>
+        Built for PayPal AI Hackathon<span className="sr-only"> (opens in a new tab)</span>
       </a>
     </nav>
   )
@@ -163,12 +163,12 @@ function ChatRow({ chat, current, onNavigate }: { chat: ConversationSummary; cur
 
   return (
     // min-w-0: a grid item otherwise grows to its title's length and pushes the menu button out.
-    <li className={cn('group flex min-w-0 items-center rounded-(--radius-control)', current && 'bg-surface-2')}>
+    <li className={cn('group flex min-w-0 items-center rounded-(--radius-control) hover:bg-surface-2 has-[[data-state=open]]:bg-surface-2', current && 'bg-surface-2')}>
       <Link
         to={`/chat/${chat.id}`}
         onClick={onNavigate}
         aria-current={current ? 'page' : undefined}
-        className={cn('flex min-h-12 min-w-0 flex-1 items-center rounded-(--radius-control) px-3 hover:bg-surface-2', current && 'text-accent')}
+        className={cn('flex min-h-12 min-w-0 flex-1 items-center rounded-(--radius-control) px-3', current && 'text-accent')}
       >
         <span className="truncate">{chat.title}</span>
       </Link>

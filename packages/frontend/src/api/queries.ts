@@ -119,6 +119,7 @@ export function useConversations() {
   return useQuery({
     queryKey: keys.conversations,
     queryFn: () => api<{ conversations: ConversationSummary[] }>('/conversations').then((r) => r.conversations),
+    enabled: !!getToken(),
   })
 }
 
