@@ -59,6 +59,17 @@ export async function resolveForReturn(accountId: string, conversationId: string
   })
 }
 
+// For questions about any order ("how much did I pay", "did my refund go through"): the one named,
+// else this chat's order, else the only one that fits `where`.
+export async function resolveOrder(
+  accountId: string,
+  conversationId: string,
+  orderId: string | null,
+  where: NonNullable<Parameters<ReturnType<typeof db>['order']['findMany']>[0]>['where'],
+): Promise<Resolved> {
+  return resolve(accountId, conversationId, orderId, where)
+}
+
 async function resolve(
   accountId: string,
   conversationId: string,

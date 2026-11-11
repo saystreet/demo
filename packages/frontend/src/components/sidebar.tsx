@@ -95,7 +95,8 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       {me && (
         <p className="px-3 text-sm text-ink-muted">
           <span className="block font-semibold text-ink">{me.name}</span>
-          Demo account
+          {/* Always in view: what this is, wherever a judge lands. */}
+          Demo account. A PayPal AI Hackathon project; payments use the PayPal sandbox, so no real money moves.
         </p>
       )}
     </nav>

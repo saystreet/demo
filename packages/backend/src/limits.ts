@@ -8,25 +8,41 @@ import { db } from './db'
 
 type Window = 'hour' | 'day'
 
+// Sized for judging: several judges behind one office or venue network share an IP, and each
+// "Start over" makes a new account. The global caps still bound the day's cost.
 export const LIMITS = {
-  accountsPerIpHour: 20,
-  accountsPerIpDay: 100,
-  accountsPerDay: 1000,
-  turnsPerDay: 3000, // agent turns, all accounts together
-  turnsPerAccountDay: 150,
-  turnsPerIpDay: 500,
-  transcriptionsPerDay: 3000,
-  transcriptionsPerAccountDay: 300,
-  transcriptionsPerIpDay: 600,
+  accountsPerIpHour: 60,
+  accountsPerIpDay: 300,
+  accountsPerDay: 2000,
+  turnsPerDay: 6000, // agent turns, all accounts together
+  turnsPerAccountDay: 300,
+  turnsPerIpDay: 1500,
+  transcriptionsPerDay: 6000,
+  transcriptionsPerAccountDay: 600,
+  transcriptionsPerIpDay: 1500,
+  // Hourly ceilings on everything together: a burst (a script, many accounts, many IPs) can use up
+  // at most an hour's share, and the demo works again the next hour instead of the next day.
+  turnsPerHour: 900,
+  transcriptionsPerHour: 900,
+  accountsPerHour: 300,
 }
 
+// This machine (local runs, test scripts): never limited by IP. In production every request has a
+// public IP from Cloudflare, so this never matches there.
+const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1'])
+const isLocalIpCheck = (key: string) => [...LOOPBACK].some((ip) => key.endsWith(`:ip:${ip}`))
+
 export type Check = { key: string; window: Window; max: number }
+
+// Keys are per window ("turns:hour:all", "turns:all"): at midnight UTC an hour window and a day
+// window start at the same moment, so one key for both would count every use twice.
 
 // Counts one use against every check; returns the first check that is now over, or null.
 // Uses that went over still count, so hammering doesn't reset anything.
 export async function consume(checks: Check[]): Promise<Check | null> {
   let over: Check | null = null
   for (const check of checks) {
+    if (isLocalIpCheck(check.key)) continue
     const rows = await db().$queryRaw<{ count: number }[]>`
       INSERT INTO usage_counters (key, window_start, count)
       VALUES (${check.key}, ${windowStart(check.window)}, 1)

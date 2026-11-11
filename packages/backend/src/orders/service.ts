@@ -120,6 +120,27 @@ export async function spentThisWeek(accountId: string, client: Pick<ReturnType<t
   return (orders._sum.totalCents ?? 0) + (unsettled._sum.totalCents ?? 0)
 }
 
+// Real purchases (paid or pending) in the last `days`, optionally only those whose title has all of
+// `words`: "how much did I spend on kettles this month".
+export async function purchasesSince(accountId: string, days: number | null, words: string[] = []): Promise<{ cents: number; orders: Order[] }> {
+  const rows = await db().order.findMany({
+    where: {
+      accountId,
+      isSample: false,
+      paymentStatus: { in: ['paid', 'pending'] },
+      ...(days !== null ? { createdAt: { gte: new Date(Date.now() - days * 24 * 60 * 60 * 1000) } } : {}),
+    },
+    orderBy: { createdAt: 'desc' },
+  })
+  const stem = (w: string) => w.toLowerCase().replace(/(es|s)$/, '')
+  const wanted = words.map(stem).filter(Boolean)
+  const orders = rows.filter((o) => {
+    const title = o.title.toLowerCase()
+    return wanted.every((w) => title.includes(w))
+  })
+  return { cents: orders.reduce((sum, o) => sum + o.totalCents, 0), orders }
+}
+
 export async function listOrders(accountId: string): Promise<OrderSummary[]> {
   const rows = await db().order.findMany({ where: { accountId }, orderBy: { createdAt: 'desc' } })
   return rows.map(toOrderSummary)

@@ -216,7 +216,7 @@ export function MandateCard({ mandate, live, busy, onPay, onCancel, onExpiring, 
         </div>
       </dl>
       <p className="mt-3 text-ink-muted">
-        Ships to {mandate.ship_to.line1}, {mandate.ship_to.city}
+        Ships to {mandate.ship_to.line1}, {mandate.ship_to.city}. PayPal sandbox: no real money moves.
       </p>
       {expired ? (
         <p className="mt-5 text-lg font-semibold">This payment expired. Nothing was paid. Ask for it again to get a new total.</p>

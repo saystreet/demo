@@ -9,12 +9,39 @@ export type Intent =
   | { type: 'other' }
 
 const CANCEL = new Set(['cancel', 'cancel it', 'no', "don't", 'dont', 'never mind', 'nevermind', 'stop'])
-const REPEAT = new Set(['repeat', 'say that again', 'again', 'repeat that'])
-
-const MORE = new Set([
-  'more', 'more options', 'show more', 'show me more', 'more please', 'other options', 'show other options',
-  'anything else', 'something else', 'what else', 'next', 'next options', 'other ones', 'different ones', 'next three',
+const REPEAT = new Set([
+  'repeat', 'say that again', 'again', 'repeat that', 'can you repeat that', 'could you repeat that', 'what did you say',
+  'say it again', 'pardon', 'sorry what', 'come again', 'repeat please', 'please repeat', 'one more time', 'what',
 ])
+
+// Only unmistakable "more": "anything else?" or "next" after an order answer isn't "more options".
+const MORE = new Set(['more', 'more options', 'show more', 'show me more', 'more please', 'other options', 'show other options', 'next options', 'next three', 'three more'])
+
+// While a payment waits: "more time" gives two more minutes (the card's button, by voice).
+const MORE_TIME = new Set(['more time', 'wait', 'hold on', 'give me more time', 'one minute', 'one moment', 'just a minute', 'give me a minute', 'hang on'])
+export function isMoreTime(transcript: string): boolean {
+  return MORE_TIME.has(normalize(transcript))
+}
+
+// "What were the options?": the current options read again, without the model.
+const READ_OPTIONS = new Set(['what were the options', 'what are the options', 'read the options', 'read the options again', 'repeat the options', 'list them', 'list the options', 'read them again', 'what were they', 'the options again'])
+export function isReadOptions(transcript: string): boolean {
+  return READ_OPTIONS.has(normalize(transcript))
+}
+
+// "Cancel my order" with nothing waiting: a paid order can't be cancelled (the server says so).
+const CANCEL_ORDER = /^(please )?(cancel|stop) (my|the|this|that) (order|purchase)( please)?$/
+export function isCancelOrder(transcript: string): boolean {
+  return CANCEL_ORDER.test(normalize(transcript))
+}
+
+// "Repeat option two", "read number three again": that option's line.
+const REPEAT_OPTION = /^(repeat|say|read|what was|what's|what is)( me)?( option| number)? (one|two|three|1|2|3)( again)?$/
+export function repeatOptionN(transcript: string): number | null {
+  const m = normalize(transcript).match(REPEAT_OPTION)
+  if (!m) return null
+  return { one: 1, two: 2, three: 3, '1': 1, '2': 2, '3': 3 }[m[4] as 'one'] ?? null
+}
 
 // "More" after options: the next three from the same search.
 export function isMoreRequest(transcript: string): boolean {
@@ -61,10 +88,11 @@ export function parseIntent(transcript: string): Intent {
   const text = normalize(transcript)
   const words = text.split(' ')
   const payAt = words.indexOf('pay')
+  // "Can you repeat that?" is a repeat, question mark or not.
+  if (REPEAT.has(text)) return { type: 'repeat' }
   // A question that mentions paying ("can I pay with PayPal?") is not a payment: the model answers it.
   if (transcript.trim().endsWith('?')) return { type: 'other' }
   if (CANCEL.has(text)) return { type: 'cancel' }
-  if (REPEAT.has(text)) return { type: 'repeat' }
   if (payAt < 0) return { type: 'other' }
   const before = words.slice(0, payAt)
   const after = words.slice(payAt + 1)

@@ -23,7 +23,15 @@ export type OptionCard = {
   detail?: string | null
   // The total is over the person's limit per purchase: shown and said, and Buy would be refused.
   over_limit?: boolean
+  // Configurations to choose from: colour, size, storage… (from the store's listing). A required
+  // one (a shoe size) must be chosen before buying; "chosen" is what the person picked.
+  choices?: Choice[]
 }
+
+// One configuration axis of a product. A value with a product_id is a separate listing (another
+// colour); one without is a configuration of this listing (a size).
+export type ChoiceValue = { label: string; product_id: string | null }
+export type Choice = { name: string; values: ChoiceValue[]; chosen: string | null; required: boolean }
 
 // GET /api/products/:id
 export type ProductView = {
@@ -50,4 +58,5 @@ export type ProductView = {
   size: string | null // "10.5 in high, 4 in wide", from the store's listing
   weight: string | null // "2.1 lb"
   arrives_on: string // YYYY-MM-DD: the delivery day if bought today
+  choices: Choice[] // colours, sizes… it comes in (empty when the listing doesn't say)
 }

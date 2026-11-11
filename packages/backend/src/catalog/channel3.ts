@@ -41,7 +41,10 @@ export type C3Product = {
   // "electronics/…/mobile-phones/smart-phones" vs "…/mobile-phone-accessories/…": tells a phone from its case.
   category?: { path?: { slug: string; title: string }[] | null } | null
   // The variant this listing is ("256 GB", "Black"), when the store says.
-  variants?: { selected?: { name: string; label: string }[] | null } | null
+  variants?: {
+    options?: { name: string; values?: { label: string; exists?: boolean | null; available?: boolean | null; product_id?: string | null }[] | null }[] | null
+    selected?: { name: string; label: string }[] | null
+  } | null
   offers: C3Offer[]
 }
 

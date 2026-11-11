@@ -8,6 +8,9 @@ import { db } from '../db'
 import { cancelMandate, confirmMandate, extendMandate, MandateNotFound, proposeMandate } from './engine'
 import { templates } from '../templates'
 import { jsonBody } from '../http'
+import { optionFromProduct } from '../catalog/service'
+import { setLastSearch } from '../conversations/search-memory'
+import type { Prisma } from '../generated/prisma/client'
 
 export const mandateRoutes = new Hono<AuthEnv>()
 
@@ -61,6 +64,21 @@ mandateRoutes.post('/products/buy', requireAccount, async (c) => {
   const conversation = found ?? (await createConversation(account.id, typeof body.title === 'string' && body.title ? body.title : 'Buy from product page'))
 
   const productId = body.product_id
+  // A size (or other required choice) comes first: the chat gets the product as option one and asks.
+  const domain = typeof body.merchant_domain === 'string' ? body.merchant_domain : ''
+  const option = await optionFromProduct(productId, domain, 1, account.perPurchaseLimitCents).catch(() => null)
+  const missing = option?.choices?.find((ch) => ch.required)
+  if (option && missing) {
+    await db().conversation.update({ where: { id: conversation.id }, data: { options: [option] as unknown as Prisma.InputJsonValue } })
+    const params = { query: option.title, budgetCents: null, store: null, size: null }
+    await setLastSearch(conversation.id, { ...params, shown: [option.product_id], first: params })
+    const asked = await respond(conversation.id, {
+      messages: [{ role: 'system', source: 'system', text: templates.whichValue(missing.name, missing.values.map((v) => v.label)), attachment: { kind: 'options', options: [option] } }],
+      options: [option],
+      sound: 'reply',
+    })
+    return c.json<TurnResponse>(asked)
+  }
   const result = await withChatLock(conversation.id, async () => {
     const decision = await proposeMandate({
       account,

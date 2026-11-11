@@ -5,6 +5,7 @@ import { type C3Dimensions, type C3Measure, type C3Offer, type C3Product, type C
 import { fixtureProduct, fixtureSearch } from './fixtures'
 import { estimatedDelivery } from '../orders/service'
 import { type Listing, officialDomain, rankListings } from './rank'
+import { choicesFor, matchValue } from './variants'
 import { cleanAttributes, knownStoreName, mainImage, merchantFromDomain, normalizeDomain, offerPriceCents, pickOffer, sentenceCase, usefulAlt } from './offers'
 
 // Catalog: search, product detail and store names on top of Channel3, with a Postgres
@@ -21,6 +22,7 @@ export type SearchInput = {
   store?: string | null
   limitCents?: number | null // the person's limit per purchase: options over it are marked
   skip?: string[] // product ids already offered ("more" gives the next ones)
+  size?: string | null // a size the person named ("10", "m"): pre-chosen on options that offer it
 }
 
 export type SearchResult = {
@@ -53,6 +55,8 @@ export async function searchOptions(input: SearchInput): Promise<SearchResult> {
   const limit = input.limitCents ?? null
   const candidates: Listing[] = []
   for (const product of response.products) {
+    // Not sold here (alcohol, tobacco, weapons, prescription medicine), whatever the store lists.
+    if (isRestricted(product)) continue
     // In a named store, that store's offer; otherwise the brand's own store if it sells it, else the cheapest.
     const official = store ? null : officialDomain(product)
     const offer = store ? pickOffer(product, store.domain) : ((official && pickOffer(product, official)) ?? pickOffer(product))
@@ -75,31 +79,69 @@ export async function searchOptions(input: SearchInput): Promise<SearchResult> {
 
   const names = await merchantNames(picked.map((p) => p.offer.domain))
   const options = picked.map(({ product, offer, item }, i): OptionCard => {
-    const image = mainImage(product)
     // Same title as another option ("iPhone 16" twice): say what sets it apart.
     const twin = picked.some((p) => p.product !== product && p.product.title.trim().toLowerCase() === product.title.trim().toLowerCase())
-    return {
-      n: (i + 1) as OptionCard['n'],
-      product_id: product.id,
-      source: 'catalog',
-      source_url: null,
-      title: product.title,
-      merchant: names.get(normalizeDomain(offer.domain)) ?? merchantFromDomain(offer.domain),
-      merchant_domain: normalizeDomain(offer.domain),
-      image_url: image ? (image.cleaned_url ?? image.url) : null,
-      image_alt: usefulAlt(image?.alt_text, product.title),
-      item_cents: item,
-      shipping_cents: shipping,
-      total_cents: item + shipping,
-      rating: product.ratings?.value ?? null,
-      rating_count: product.ratings?.count ?? null,
-      detail: twin ? variantLabel(product) : null,
-      over_limit: limit !== null && item + shipping > limit,
-    }
+    const card = toOptionCard(product, offer, item, i + 1, names.get(normalizeDomain(offer.domain)) ?? merchantFromDomain(offer.domain), limit)
+    return { ...card, detail: twin ? variantLabel(product) : null, choices: withSize(card.choices, input.size ?? null) }
   })
 
   return { options, more: moreLeft, store, store_unknown: storeUnknown, source }
 }
+
+// A size the person said in the search, chosen up front on options that offer it.
+function withSize(choices: OptionCard['choices'], size: string | null): OptionCard['choices'] {
+  if (!size || !choices?.length) return choices
+  return choices.map((c) => {
+    if (!c.required || !/size|waist|width/i.test(c.name)) return c
+    if (c.values.length === 0) return { ...c, chosen: size.toUpperCase(), required: false }
+    const match = matchValue([c], size)
+    return match && 'value' in match ? { ...c, chosen: match.value.label, required: false } : c
+  })
+}
+
+function toOptionCard(product: C3Product, offer: C3Offer, item: number, n: number, merchant: string, limit: number | null): OptionCard {
+  const shipping = shippingCents()
+  const image = mainImage(product)
+  const choices = choicesFor(product)
+  return {
+    n: n as OptionCard['n'],
+    product_id: product.id,
+    source: 'catalog',
+    source_url: null,
+    title: product.title,
+    merchant,
+    merchant_domain: normalizeDomain(offer.domain),
+    image_url: image ? (image.cleaned_url ?? image.url) : null,
+    image_alt: usefulAlt(image?.alt_text, product.title),
+    item_cents: item,
+    shipping_cents: shipping,
+    total_cents: item + shipping,
+    // "0.0 stars from 0 ratings" is no rating.
+    rating: product.ratings?.count ? product.ratings.value : null,
+    rating_count: product.ratings?.count ? product.ratings.count : null,
+    over_limit: limit !== null && item + shipping > limit,
+    ...(choices.length ? { choices } : {}),
+  }
+}
+
+// Another listing as option `n` (a colour chosen with choose_variant): at `preferDomain` if that
+// store sells it, else the best offer. Null if no store sells it new.
+export async function optionFromProduct(productId: string, preferDomain: string, n: number, limit: number | null): Promise<OptionCard | null> {
+  const product = await getProduct(productId)
+  if (isRestricted(product)) return null
+  const offer = pickOffer(product, preferDomain) ?? ((officialDomain(product) && pickOffer(product, officialDomain(product)!)) || pickOffer(product))
+  const item = offer && offerPriceCents(offer)
+  if (!offer || !item) return null
+  const names = await merchantNames([offer.domain])
+  return toOptionCard(product, offer, item, n, names.get(normalizeDomain(offer.domain)) ?? merchantFromDomain(offer.domain), limit)
+}
+
+// Alcohol, tobacco and vapes, weapons, prescription medicine: by Channel3's category.
+const RESTRICTED = /^(alcohol|alcoholic|beer|wine|wines|liquor|spirits|tobacco|cigar|cigars|cigarettes|vape|vapes|vaping|e-cigarettes|electronic-cigarettes|firearm|firearms|ammunition|guns|weapons|prescription)/
+export function isRestricted(product: C3Product): boolean {
+  return (product.category?.path ?? []).some((p) => RESTRICTED.test(p.slug))
+}
+
 
 // "256 GB, Black" from the listing's selected variant, if it says.
 function variantLabel(product: C3Product): string | null {
@@ -178,6 +220,7 @@ export async function getProductView(productId: string, storeDomain?: string | n
     size: sizeWords(dims),
     weight: measure(dims?.weight ?? null),
     arrives_on: estimatedDelivery(new Date()).toISOString().slice(0, 10),
+    choices: choicesFor(product),
   }
 }
 
@@ -272,12 +315,19 @@ async function merchantNames(domains: string[]): Promise<Map<string, string>> {
 
 // Channel3's store names are the stores' own account names: "totalwireless.com", "B&H Parent Admin
 // Acct", "DILLARD'S", "Native Union  US". Known stores get the name people use; the rest are tidied.
-function storeDisplayName(name: string | null, domain: string): string {
+export function storeDisplayName(name: string | null, domain: string): string {
   const known = knownStoreName(domain)
   if (known) return known
   let text = (name ?? '').replace(/\s+/g, ' ').trim()
   if (!text || text.includes('.') || /\b(acct|admin|account)\b/i.test(text)) return merchantFromDomain(domain)
   text = text.replace(/\s*-?\s*\b(global|us|usa)$/i, '').trim()
+  // A slug, not a name ("Slt-sfcc-react-production", "Us-shop"): the domain says it better.
+  if (!text.includes(' ') && text.includes('-')) {
+    if (/sfcc|react|prod|staging|^us-|shop$|store$/i.test(text)) return merchantFromDomain(domain)
+    text = text.replace(/-/g, ' ').replace(/(^|\s)\S/g, (c) => c.toUpperCase()) // "Sennheiser-hearing" → "Sennheiser Hearing"
+  }
+  // Three letters are an acronym: "Cvs" → "CVS".
+  if (/^[A-Za-z]{2,3}$/.test(text)) text = text.toUpperCase()
   // ALL CAPS reads letter by letter on some voices: "DILLARD'S" → "Dillard's".
   if (text.length > 4 && text === text.toUpperCase()) text = text.toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase())
   return text || merchantFromDomain(domain)

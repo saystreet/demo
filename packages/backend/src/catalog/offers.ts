@@ -9,11 +9,17 @@ export function offerPriceCents(offer: C3Offer): number | null {
   return typeof dollars === 'number' && dollars > 0 ? toCents(dollars) : null
 }
 
+// Stores that sell used or refurbished goods without saying so on each offer (condition null):
+// Back Market's $208 "new" Sony headphones are refurbished.
+const REFURB_STORES = new Set(['backmarket', 'gazelle', 'decluttr', 'swappa', 'musicmagpie', 'reebelo', 'ecoatm', 'thredup', 'poshmark', 'ebay'])
+
 export function isSellable(offer: C3Offer): boolean {
+  const store = normalizeDomain(offer.domain).split('.').at(-2) ?? ''
   return (
     offer.availability === 'InStock' &&
     offer.price.currency === 'USD' &&
     (offer.condition === null || offer.condition === 'new') &&
+    !(offer.condition === null && REFURB_STORES.has(store)) &&
     offerPriceCents(offer) !== null
   )
 }

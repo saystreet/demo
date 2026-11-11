@@ -67,7 +67,7 @@ A message may carry an `attachment`; draw it under the message text.
 
 | `attachment.kind` | Card |
 |---|---|
-| `options` | Up to three options: image (`image_alt`, else decorative), title, `detail` when two options share a title ("256 GB"), merchant, total with shipping, rating, "Over your limit per purchase" when `over_limit`. "Details" links to `/products/<product_id>?store=<merchant_domain>&n=<n>`. Under the latest list, "More options" sends "More options" (the server offers "more" in the spoken list when there are further results). |
+| `options` | Up to three options (one per product: a store's listings of the same model are grouped, best offer kept). `choices` lists what it comes in (colour, size…); a `required` one is asked before buying. Image (`image_alt`, else decorative), title, `detail` when two options share a title ("256 GB"), merchant, total with shipping, rating, "Over your limit per purchase" when `over_limit`. "Details" links to `/products/<product_id>?store=<merchant_domain>&n=<n>`. Under the latest list, "More options" sends "More options" (the server offers "more" in the spoken list when there are further results). |
 | `mandate` | Depends on `mandate.status`, see below. It is a snapshot from when the message was sent. |
 | `orders` | Order cards: title, merchant, status words, "Order details" → `/orders/<order_id>`. |
 
@@ -120,7 +120,7 @@ the one the buttons act on; older mandate cards are history.
 | `POST /api/turn` | `TurnRequest` | `TurnResponse` | Text up to 500 characters. |
 | `POST /api/transcribe` | multipart `audio` | `TranscribeResponse` | Up to 2 MB. 429 `busy` with `say`. |
 | `GET /api/products/:id?store=` | | `ProductView` | `store` = the option's `merchant_domain`: that store's offer, in stock or not (never quietly another store). Adds `size`, `weight`, `arrives_on`; `attributes` have plain names. 404, 502 `catalog_unavailable`. |
-| `POST /api/products/buy` | `{ product_id, merchant_domain?, title?, conversation_id? }` | `TurnResponse` | Makes a mandate (never pays). Go to its chat. A `conversation_id` that no longer exists starts a new chat. |
+| `POST /api/products/buy` | `{ product_id, merchant_domain?, title?, conversation_id? }` | `TurnResponse` | Makes a mandate (never pays). Go to its chat. A `conversation_id` that no longer exists starts a new chat. A product that needs a size first (shoes, clothing) gets no mandate: the chat opens with it as option one and asks "Which size?". |
 | `POST /api/mandates/:id/pay` | `PayRequest` | `TurnResponse` | |
 | `POST /api/mandates/:id/cancel` | | `TurnResponse` | |
 | `POST /api/mandates/:id/extend` | | `MandateView` | 404, 409 `not_waiting` |

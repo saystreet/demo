@@ -187,10 +187,13 @@ model Conversation {
   /// The options the person heard last in this chat (OptionCard[]), "the first one" refers to them.
   options Json?
 
-  /// Agent memory lives on OpenAI (Responses API): the id of the last response in this chat.
+  /// The last search in this chat ({ query, budgetCents, store, shown, size, first }): "more" gives the
+  /// next options, a budget is kept for later turns, "go back to the first search" finds it.
+  lastSearch Json? @map("last_search")
+
+  /// No longer used: the agent's context is rebuilt from this chat's messages every turn
+  /// (agent/turn.ts). Kept so old rows still read.
   lastResponseId     String? @map("last_response_id")
-  /// Tool results not yet sent to the model. After a search the server speaks the options
-  /// itself and skips a second model call; the results go along with the next turn.
   pendingToolOutputs Json    @default("[]") @map("pending_tool_outputs")
 
   messages Message[]

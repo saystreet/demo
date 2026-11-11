@@ -24,6 +24,7 @@ speechRoutes.post(
     if (!AUDIO_TYPES.test(audio.type)) return c.json<ApiError>({ error: 'unsupported_audio' }, 400)
 
     const over = await consume([
+      { key: 'transcriptions:hour:all', window: 'hour', max: LIMITS.transcriptionsPerHour },
       { key: 'transcriptions:all', window: 'day', max: LIMITS.transcriptionsPerDay },
       { key: `transcriptions:account:${c.var.account.id}`, window: 'day', max: LIMITS.transcriptionsPerAccountDay },
       { key: `transcriptions:ip:${clientIp(c)}`, window: 'day', max: LIMITS.transcriptionsPerIpDay },

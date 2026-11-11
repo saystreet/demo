@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { type MandateView, type RejectReason, type ShippingAddress, type Sound, speakAmount } from '@saystreet/shared'
 import { shipToOf, walletFor } from '../account/service'
 import { audit, fields, shortId } from '../audit'
-import { CatalogUnavailable, getProductLive, resolveStore } from '../catalog/service'
+import { CatalogUnavailable, getProductLive, resolveStore, storeDisplayName } from '../catalog/service'
 import { mainImage, normalizeDomain, offerPriceCents, pickOffer } from '../catalog/offers'
 import type { NewMessage } from '../conversations/service'
 import { type Account, db } from '../db'
@@ -38,6 +38,7 @@ export type ProposeInput = {
   source?: 'catalog' | 'link' // 'link': found from a link the person pasted
   sourceUrl?: string | null
   budgetCents: number | null
+  selection?: string[] // configurations chosen for this listing ("10.5"), named in the title
 }
 
 export async function proposeMandate(input: ProposeInput): Promise<Decision> {
@@ -56,7 +57,7 @@ export async function proposeMandate(input: ProposeInput): Promise<Decision> {
 
   const offer = pickOffer(product, input.merchantDomain ?? undefined)
   const storePrice = offer && offerPriceCents(offer)
-  if (!offer || !storePrice) return refusalWithoutMandate(templates.outOfStock())
+  if (!offer || !storePrice) return refusalWithoutMandate(templates.outOfStock(product.title))
   // A price raised with the demo tools reaches the payment check first: the payment quoted at the
   // old price is refused with "Price changed to …". From then on that new price is what the store
   // charges, so asking again quotes it and it can be paid (not refused over and over).
@@ -109,8 +110,10 @@ export async function proposeMandate(input: ProposeInput): Promise<Decision> {
         productSource: input.source ?? 'catalog',
         sourceUrl: input.sourceUrl ?? null,
         offerDomain: domain,
-        title: product.title,
-        merchant: store?.name ?? domain,
+        // A chosen size goes into the title, so the proposal, the receipt and the order say it.
+        title: input.selection?.length ? `${product.title}, ${input.selection.join(', ')}` : product.title,
+        // The same name the options used, not the store's account name ("B&H Parent Admin Acct").
+        merchant: storeDisplayName(store?.name ?? null, domain),
         imageUrl: image ? (image.cleaned_url ?? image.url) : null,
         itemCents: item,
         shippingCents: shipping,
@@ -171,7 +174,7 @@ export async function confirmMandate(
   // 3–4. The person said the exact total. The mandate stays open so they can try again.
   if (heardCents === null) {
     await audit(account.id, 'mandate.refused', `REFUSED ${fields({ mandate: shortId(mandate.id), reason: 'AMOUNT_MISSING' })} → no Orders API call`, { mandateId: mandate.id })
-    return say(mandate, templates.amountMissing(speakAmount(mandate.totalCents)), 'refused')
+    return say(mandate, templates.amountMissing(speakAmount(mandate.totalCents), mandate.title), 'refused')
   }
   if (heardCents !== mandate.totalCents) {
     const updated = await db().mandate.update({ where: { id: mandate.id }, data: { heardCents } })
@@ -435,7 +438,7 @@ async function reject(
     reason === 'PRICE_CHANGED'
       ? templates.priceChanged(liveTotal!, mandate.budgetCents)
       : reason === 'OUT_OF_STOCK'
-        ? templates.outOfStock()
+        ? templates.outOfStock(mandate.title)
         : reason === 'PRICE_UNAVAILABLE'
           ? templates.priceUnavailable()
           : reason === 'OVER_LIMIT'
@@ -481,6 +484,21 @@ type Tx = Parameters<Parameters<ReturnType<typeof db>['$transaction']>[0]>[0]
 
 async function lockAccount(tx: Tx, accountId: string) {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${accountId}))`
+}
+
+// The waiting payment said again ("how much is it?", "repeat"), exactly as when it was proposed.
+export function mandatePhrase(mandate: Mandate): string {
+  const shipTo = mandate.shipTo as ShippingAddress
+  return templates.mandate({
+    totalCents: mandate.totalCents,
+    itemCents: mandate.itemCents,
+    shippingCents: mandate.shippingCents,
+    merchant: mandate.merchant,
+    title: mandate.title,
+    street: shipTo.line1,
+    city: shipTo.city,
+    spoken: speakAmount(mandate.totalCents),
+  })
 }
 
 export function toMandateView(

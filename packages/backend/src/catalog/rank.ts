@@ -103,8 +103,12 @@ export function isAccessory(product: C3Product, query: string[]): boolean {
   return !query.some((w) => leaf.has(singular(w)))
 }
 
+// Prepaid carriers: a locked phone at a lower price, never the best offer unless it's the only one.
+const CARRIER_STORES = new Set(['totalwireless', 'straighttalk', 'tracfone', 'visible', 'cricketwireless', 'metrobyt-mobile', 'boostmobile', 'simplemobile'])
+
 function storeTier(listing: Listing): number {
   const domain = normalizeDomain(listing.offer.domain)
+  if (CARRIER_STORES.has(storeSlug(domain))) return -1
   if (domain === officialDomain(listing.product)) return 2
   return KNOWN_STORES.has(storeSlug(domain)) ? 1 : 0
 }

@@ -198,6 +198,8 @@ function Product({
     p.materials.length ? { name: 'Made of', value: p.materials.join(', ') } : null,
     p.size ? { name: 'Size', value: p.size } : null,
     p.weight ? { name: 'Weight', value: p.weight } : null,
+    // What it comes in, from the store's listing ("Size: 7, 7.5, 8 …", "Color: Black, Navy").
+    ...p.choices.map((c) => ({ name: c.chosen && c.values.some((v) => v.product_id) ? `${c.name} (this one: ${c.chosen})` : c.name, value: c.values.map((v) => v.label).join(', ') })),
     ...p.attributes,
   ].filter((row): row is { name: string; value: string } => row !== null)
 
@@ -245,7 +247,9 @@ function Product({
       {notice && <p className="mt-3 font-semibold text-bad">{notice}</p>}
       {canBuy && (
         <p id="buy-help" className="mt-3 text-ink-muted">
-          Nothing is paid yet. In the chat you'll hear the total, checked again with the store, then pay by saying it or pressing Pay.
+          Nothing is paid yet.{' '}
+          {p.choices.some((c) => c.required) ? `In the chat you'll choose the ${p.choices.find((c) => c.required)!.name.toLowerCase()} first, then hear the total. ` : "In the chat you'll hear the total, checked again with the store. "}
+          You pay by saying it or pressing Pay.
         </p>
       )}
 

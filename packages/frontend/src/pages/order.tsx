@@ -287,7 +287,8 @@ function Actions({ o }: { o: OrderView }) {
 
   const ask = async () => {
     if (busy) return
-    if (o.conversation_id) return navigate(`/chat/${o.conversation_id}`)
+    // Always through the server: it opens the order's chat if it still exists, or a new one if that
+    // chat was deleted (going straight to the stored chat id led to "This chat was deleted").
     setBusy('ask')
     try {
       const response = await startOrderChat(o.order_id)

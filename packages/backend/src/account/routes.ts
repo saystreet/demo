@@ -106,8 +106,9 @@ accountRoutes.post('/me/reset', requireAccount, async (c) => {
 // "Try the demo" and "Reset demo account" both make an account.
 async function accountLimitReached(ip: string): Promise<boolean> {
   const over = await consume([
-    { key: `accounts:ip:${ip}`, window: 'hour', max: LIMITS.accountsPerIpHour },
+    { key: `accounts:hour:ip:${ip}`, window: 'hour', max: LIMITS.accountsPerIpHour },
     { key: `accounts:ip:${ip}`, window: 'day', max: LIMITS.accountsPerIpDay },
+    { key: 'accounts:hour:all', window: 'hour', max: LIMITS.accountsPerHour },
     { key: 'accounts:all', window: 'day', max: LIMITS.accountsPerDay },
   ])
   return over !== null

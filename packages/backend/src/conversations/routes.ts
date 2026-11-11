@@ -11,17 +11,18 @@ import {
 import { Hono } from 'hono'
 import { nextOptions } from '../agent/tools'
 import { runAgentTurn } from '../agent/turn'
-import { isAffirmation, isMoreRequest, parseIntent } from '../amount/parse'
+import { isAffirmation, isCancelOrder, isMoreRequest, isMoreTime, isReadOptions, parseIntent, repeatOptionN } from '../amount/parse'
 import { type AuthEnv, requireAccount } from '../auth'
 import { CatalogUnavailable, getProductView, ProductNotFound } from '../catalog/service'
 import { db } from '../db'
-import type { Prisma } from '../generated/prisma/client'
+import { Prisma } from '../generated/prisma/client'
 import { clientIp, consume, LIMITS } from '../limits'
-import { activeMandate, cancelMandate, cancelMandatesInConversation, confirmMandate, toMandateView } from '../mandate/engine'
+import { activeMandate, cancelMandate, cancelMandatesInConversation, confirmMandate, extendMandate, mandatePhrase, toMandateView } from '../mandate/engine'
 import { canReturn, findOrder, toOrderSummary } from '../orders/service'
 import { isReturnConfirmation, refundOrder, returnRefusal, takePendingReturn, trackingPhrase } from '../orders/tracking'
 import { templates } from '../templates'
 import { respond } from './respond'
+import { setLastSearch } from './search-memory'
 import { addMessages, conversationState, createConversation, findConversation, listConversations, titleFrom, toSummary } from './service'
 import { jsonBody } from '../http'
 
@@ -108,6 +109,35 @@ conversationRoutes.post('/turn', requireAccount, async (c) => {
       const decision = await confirmMandate(account, waiting.id, null, 'voice')
       return c.json<TurnResponse>(await respond(conversation.id, { already, messages: decision.messages, decision, sound: decision.sound }))
     }
+    // "More time" while the payment waits: two more minutes, as the card's button does.
+    if (waiting && isMoreTime(text)) {
+      await extendMandate(account, waiting.id)
+      return c.json<TurnResponse>(await respond(conversation.id, { already, messages: [{ role: 'system', source: 'system', text: templates.moreTime(speakAmount(waiting.totalCents)) }], sound: 'reply' }))
+    }
+    // "Repeat" while the payment waits: the total and what to say, not whatever was said last.
+    if (waiting && intent.type === 'repeat') {
+      return c.json<TurnResponse>(await respond(conversation.id, { already, messages: [{ role: 'system', source: 'system', text: mandatePhrase(waiting) }], sound: 'reply' }))
+    }
+    // "Cancel my order": paid orders can't be cancelled; say what can be done instead.
+    if (!waiting && isCancelOrder(text)) {
+      return c.json<TurnResponse>(await respond(conversation.id, { already, messages: [{ role: 'system', source: 'system', text: templates.cantCancelOrder() }], sound: 'reply' }))
+    }
+    // "Cancel" with nothing waiting: nothing to stop, and never a return.
+    if (!waiting && intent.type === 'cancel') {
+      return c.json<TurnResponse>(await respond(conversation.id, { already, messages: [{ role: 'system', source: 'system', text: templates.nothingToCancel() }], sound: 'reply' }))
+    }
+    // "What were the options?" / "repeat option two": read again, no model.
+    const current = (conversation.options as OptionCard[] | null) ?? null
+    const repeatN = repeatOptionN(text)
+    const repeated = repeatN !== null ? current?.find((o) => o.n === repeatN) : undefined
+    if (repeated) {
+      return c.json<TurnResponse>(await respond(conversation.id, { already, messages: [{ role: 'system', source: 'system', text: templates.optionLine(repeated) }], sound: 'reply' }))
+    }
+    if (isReadOptions(text) && current?.length) {
+      const reread = templates.options(current, null, { limitCents: account.perPurchaseLimitCents })
+      return c.json<TurnResponse>(await respond(conversation.id, { already, messages: [{ role: 'system', source: 'system', text: reread }], sound: 'reply' }))
+    }
+
     // "Pay …" with nothing waiting, after a payment in this chat (paid a moment ago, expired,
     // cancelled): the server says where the money stands, never the model. With no payment here
     // at all ("pay for the second one"), the model takes it and proposes one.
@@ -120,7 +150,7 @@ conversationRoutes.post('/turn', requireAccount, async (c) => {
       }
     }
     // "More": the next options from this chat's last search, in plain code (no model, no credit).
-    if (!waiting && isMoreRequest(text)) {
+    if (!waiting && isMoreRequest(text) && (await lastCardKind(conversation.id)) === 'options') {
       const next = await nextOptions(account, conversation.id)
       if (next.options) await db().conversation.update({ where: { id: conversation.id }, data: { options: next.options as unknown as Prisma.InputJsonValue } })
       return c.json<TurnResponse>(
@@ -143,6 +173,7 @@ conversationRoutes.post('/turn', requireAccount, async (c) => {
 
     // Only turns that reach the model count: "pay …", "cancel" and "repeat" are free.
     const over = await consume([
+      { key: 'turns:hour:all', window: 'hour', max: LIMITS.turnsPerHour },
       { key: 'turns:all', window: 'day', max: LIMITS.turnsPerDay },
       { key: `turns:account:${account.id}`, window: 'day', max: LIMITS.turnsPerAccountDay },
       { key: `turns:ip:${clientIp(c)}`, window: 'day', max: LIMITS.turnsPerIpDay },
@@ -169,6 +200,16 @@ async function recentMandate(accountId: string, conversationId: string) {
     where: { accountId, conversationId, status: { not: 'proposed' }, createdAt: { gte: new Date(Date.now() - 30 * 60 * 1000) } },
     orderBy: { createdAt: 'desc' },
   })
+}
+
+// What the last card in the chat showed: options, orders or a payment.
+async function lastCardKind(conversationId: string): Promise<string | null> {
+  const row = await db().message.findFirst({
+    where: { conversationId, role: { in: ['agent', 'system'] }, attachment: { not: Prisma.AnyNull } },
+    orderBy: { createdAt: 'desc' },
+    select: { attachment: true },
+  })
+  return (row?.attachment as { kind?: string } | null)?.kind ?? null
 }
 
 // The last thing SayStreet said in this chat, for "repeat".
@@ -243,10 +284,15 @@ conversationRoutes.post('/conversations', requireAccount, async (c) => {
     total_cents: product.total_cents,
     rating: product.rating,
     rating_count: product.rating_count,
+    over_limit: product.total_cents > account.perPurchaseLimitCents,
+    ...(product.choices.length ? { choices: product.choices } : {}),
   }
 
   const conversation = await createConversation(account.id, product.title)
   await db().conversation.update({ where: { id: conversation.id }, data: { options: [option] as unknown as Prisma.InputJsonValue } })
+  // "More like this" searches for it.
+  const params = { query: product.title, budgetCents: null, store: null, size: null }
+  await setLastSearch(conversation.id, { ...params, shown: [product.product_id], first: params })
   const response = await respond(conversation.id, {
     messages: [{ role: 'system', source: 'system', text: templates.askAbout(product.title), attachment: { kind: 'options', options: [option] } }],
     options: [option],
