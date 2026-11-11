@@ -67,7 +67,7 @@ export default function StartPage() {
             <Dialog.Title asChild>
               <h1 className="title text-4xl sm:text-5xl">SayStreet demo</h1>
             </Dialog.Title>
-            <Dialog.Description className="mt-2 text-lg text-ink-muted">Shop by voice. Pay only what you said.</Dialog.Description>
+            <Dialog.Description className="mt-2 text-lg text-ink-muted">Accessible online shopping.</Dialog.Description>
             <h2 className="mt-6 text-xl font-bold">How should SayStreet talk to you?</h2>
             <div className="mt-3 grid gap-3">
               {CHOICES.map(({ mode, label, description, Icon }) => {

@@ -4,7 +4,7 @@
 
 # SayStreet
 
-**Online shopping by voice for blind and low-vision people.**
+**Accessible online shopping for blind and low-vision people.**
 
 Find, compare, buy, track and return in one conversation. Nothing is paid until you say the exact total.
 
@@ -83,7 +83,7 @@ All calls go to the PayPal sandbox REST API from the backend ([`packages/backend
 | Return | Payments v2: `POST /v2/payments/captures/{id}/refund` |
 | Settle pending payments and refunds | Webhooks: `POST /v1/notifications/verify-webhook-signature`, then `PAYMENT.CAPTURE.*` events |
 
-The vault is what makes paying by voice possible: the wallet is connected ahead of time, so paying never leaves the conversation. Anyone can connect their own PayPal sandbox account from the start page or Settings, and SayStreet then ships to its name and address. A sandbox buyer login for this is in the Devpost submission's additional info.
+The vault is what makes paying by voice possible: the wallet is connected ahead of time, so paying never leaves the conversation. Anyone can connect their own PayPal sandbox account from the welcome dialog or Settings, and SayStreet then ships to its name and address. A sandbox buyer login for this is in the Devpost submission's additional info.
 
 To see PayPal at work, open an order and look under **At PayPal**: every call SayStreet made for it and every verified webhook, with the HTTP status, PayPal's ids, the PayPal-Request-Id and the time it took. The receipt in the chat and the payment log in Settings show the same.
 
