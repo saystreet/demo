@@ -2,6 +2,7 @@ import { List, X } from '@phosphor-icons/react'
 import { Dialog } from 'radix-ui'
 import { useEffect, useRef, useState } from 'react'
 import { Link, Outlet, useLocation, useNavigationType } from 'react-router'
+import { Welcome } from './chat/welcome'
 import { Sidebar } from './sidebar'
 
 // The signed-in app: the sidebar on the left (a sheet behind "Menu" on phones), the page in
@@ -67,9 +68,9 @@ export function AppShell() {
       </aside>
 
       <header className="sticky top-0 z-30 flex items-center justify-between border-b border-line bg-ground px-4 py-2 lg:hidden [@media(max-height:32rem)]:static">
-        <Link to="/chat" className="flex min-h-12 items-center">
-          <img src="/brand/lockup-for-dark-bg.svg" alt="SayStreet, new chat" width="140" height="28" className="h-7 w-auto" />
-        </Link>
+        <a href="https://saystreet.app" className="flex min-h-12 items-center">
+          <img src="/brand/lockup-for-dark-bg.svg" alt="SayStreet website" width="140" height="28" className="h-7 w-auto" />
+        </a>
         <Dialog.Root open={menuOpen} onOpenChange={setMenuOpen}>
           <Dialog.Trigger className="flex min-h-12 items-center gap-2 rounded-full border border-edge px-4 font-semibold">
             <List aria-hidden="true" size={22} />
@@ -105,6 +106,7 @@ export function AppShell() {
       <main id="main" className="min-w-0">
         <Outlet />
       </main>
+      <Welcome onDone={() => document.getElementById('talk')?.focus()} />
     </div>
   )
 }

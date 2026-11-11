@@ -1,3 +1,4 @@
+import { CaretDown } from '@phosphor-icons/react'
 import { forwardRef, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, useId } from 'react'
 import { cn } from '../../lib/cn'
 
@@ -47,7 +48,13 @@ export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputE
   return <input ref={ref} className={cn(CONTROL, className)} {...props} />
 })
 
-// Native select: the most reliable picker with VoiceOver on iPhone.
+// Native select (the most reliable picker with VoiceOver on iPhone), drawn like the other fields:
+// the same padding, and our own arrow instead of the browser's, which pushes the text in.
 export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSelectElement>>(function Select({ className, ...props }, ref) {
-  return <select ref={ref} className={cn(CONTROL, 'appearance-auto', className)} {...props} />
+  return (
+    <div className="relative">
+      <select ref={ref} className={cn(CONTROL, 'appearance-none pr-11', className)} {...props} />
+      <CaretDown aria-hidden="true" size={18} weight="bold" className="pointer-events-none absolute top-1/2 right-4 -translate-y-1/2 text-ink-muted" />
+    </div>
+  )
 })

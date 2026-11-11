@@ -1,4 +1,3 @@
-import { Trash } from '@phosphor-icons/react'
 import type { ConversationState, MandateView, Message, TurnResponse } from '@saystreet/shared'
 import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
@@ -13,16 +12,13 @@ import {
   sendTurn,
   transcribe,
   useConversation,
-  useDeleteConversation,
   useMe,
 } from '../api/queries'
-import { AccountReady } from '../components/chat/account-ready'
 import { MandateCard, OptionsCard, OrdersCard } from '../components/chat/cards'
+import { BrailleCell } from '../components/braille'
 import { Composer } from '../components/chat/composer'
 import { ErrorLine, LoadingLine, PageTitle, usePageTitle } from '../components/page'
 import { tookWords } from '../components/paypal'
-import { ConfirmDialog } from '../components/ui/alert-dialog'
-import { Button } from '../components/ui/button'
 import { ApiError } from '../lib/api'
 import { useAnnouncer } from '../lib/announcer'
 import { cn } from '../lib/cn'
@@ -36,19 +32,12 @@ import { play } from '../lib/sounds'
 // Buying comes first: one open question to answer out loud, then the two worries before the first
 // press, how to say it and what gets paid. Orders (track, return) wait in the suggestions below.
 const HEADING = 'What are you shopping for today?'
-const REASSURE = "Say it in your own words. You'll hear the total before anything is paid."
 // Spoken mode says this once; it carries the one rule worth knowing before the first purchase.
-const WELCOME = `Hi, I'm SayStreet. ${HEADING} When you're ready to pay, you'll say the amount.`
-const HOW = [
-  'Say what you want and your budget. You hear up to three options.',
-  'Pick one by its number. SayStreet tells you the total with shipping.',
-]
 // The rule no other store has, set apart from the two steps above.
 const ERROR = 'Something went wrong on my side. Nothing was paid. Try again.'
 // The welcome's three jobs. Buying starts from a search; tracking and returning use the sample
 // orders every demo account starts with, each landing on exactly one of them.
-const SHOP = ['Buy a whistling kettle under $40']
-const ORDERS = ['Where is my kettle?', 'Return my French press']
+const STARTERS = ['Buy a whistling kettle under $40', 'Where is my kettle?', 'Return my French press']
 
 type Work = 'idle' | 'transcribing' | 'thinking'
 // What is happening, and in which chat it started. The page stays mounted across chats, so a
@@ -63,7 +52,6 @@ export default function ChatPage() {
   const { say, stop: stopVoice, hold, speaking } = useAnnouncer()
   const { data: me } = useMe()
   const chat = useConversation(id)
-  const remove = useDeleteConversation()
   const [turn, setTurn] = useState<Turn>(IDLE)
   // The last problem, shown as text too: earcons and the hidden live region aren't enough for
   // a sighted or low-vision person without a screen reader.
@@ -85,10 +73,6 @@ export default function ChatPage() {
   const title = id ? (chat.data?.conversation.title ?? 'Chat') : 'New chat'
   usePageTitle(title)
 
-  // Spoken mode greets a new empty chat once.
-  useEffect(() => {
-    if (!id && spoken) say([WELCOME])
-  }, [id, spoken, say])
 
   // Back from PayPal after choosing "my own PayPal sandbox account" on the start page: said once,
   // then taken off the address. A failure keeps the demo buyer, so the demo still works.
@@ -127,9 +111,20 @@ export default function ChatPage() {
     }
   }, [waiting])
 
+  // Once the first message of a new chat is on its way, the input stays docked at the bottom, even
+  // for the render between the answer arriving and the chat getting its address. Without this the
+  // chat looked empty for a moment and the input slid to the middle and back.
+  const [started, setStarted] = useState(false)
+  const dockFrom = useRef<number | null>(null)
   const begin = useCallback((work: Work, text: string | null = null) => {
     const token = ++tokens.current
     setTurn({ work, chat: here.current ?? undefined, text, token })
+    // The moment a message goes out (typed, or a recording that has just stopped) the chat has begun:
+    // the input drops down and the message shows, without waiting for the server.
+    if (here.current === undefined) {
+      dockFrom.current = barRef.current?.getBoundingClientRect().top ?? null
+      setStarted(true)
+    }
     return token
   }, [])
   // Only the turn that started it may end it: an older reply landing late leaves a newer one alone.
@@ -156,6 +151,10 @@ export default function ChatPage() {
     [client, navigate, speak],
   )
 
+  useEffect(() => {
+    if (!id) setStarted(false)
+  }, [id])
+
   const tell = useCallback(
     (text: string, origin: string | undefined) => {
       if (here.current !== origin) return
@@ -170,6 +169,8 @@ export default function ChatPage() {
     (error: unknown, origin: string | undefined) => {
       // Signed out: the app is already on its way to the start screen.
       if (error instanceof ApiError && error.status === 401) return
+      // Nothing was sent into a new chat: it is empty again.
+      if (!origin) setStarted(false)
       tell(error instanceof ApiError && error.say ? error.say : ERROR, origin)
     },
     [tell],
@@ -187,6 +188,8 @@ export default function ChatPage() {
       play('sent')
       setNotice(null)
       const token = begin('thinking', text)
+      // A screen reader hears it once, through the live region; the line in the chat is for the eyes.
+      say(['Thinking…'], 'status')
       try {
         handle(await sendTurn({ conversation_id: origin, text, input }), origin)
         return true
@@ -200,16 +203,28 @@ export default function ChatPage() {
     [id, stopVoice, begin, end, handle, fail],
   )
 
+  // Pressing Stop already is the sending: the message's place is held at that moment, not when the
+  // recording finishes saving.
+  const stopToken = useRef<number | null>(null)
   const recorder = useRecorder(
     async (audio) => {
       hold(false)
       play('record_stop')
-      if (!audio) return // stopped before the microphone was live, or the page was left
       const origin = here.current ?? undefined
-      const token = begin('transcribing')
+      const early = stopToken.current
+      stopToken.current = null
+      if (!audio) {
+        // Stopped before the microphone was live, or the page was left: nothing was said.
+        if (early !== null) end(early)
+        if (!origin) setStarted(false)
+        return
+      }
+      const token = early ?? begin('transcribing')
       try {
         const result = await transcribe(audio)
         if (!result.heard) {
+          // Nothing was said after all: the chat that was starting is empty again.
+          if (!origin) setStarted(false)
           tell(result.say ?? "I didn't catch that. Try again.", origin)
           return
         }
@@ -223,6 +238,10 @@ export default function ChatPage() {
     },
     (error) => {
       hold(false)
+      // Stop was pressed (the message's place was held), but the microphone never worked.
+      if (stopToken.current !== null) end(stopToken.current)
+      stopToken.current = null
+      if (!here.current) setStarted(false)
       tell(
         error === 'denied'
           ? 'Microphone access is blocked. Type instead, or allow the microphone in your browser.'
@@ -236,20 +255,28 @@ export default function ChatPage() {
   )
 
   const recording = recorder.state === 'starting' || recorder.state === 'recording'
+  // The start tone sounds when the microphone is really live, so nobody starts speaking into a dead one.
+  useEffect(() => {
+    if (recorder.state === 'recording') play('record_start')
+  }, [recorder.state])
   const phase = recording ? 'recording' : current.work
+
+  const stopRecording = useCallback(() => {
+    stopToken.current = begin('transcribing')
+    recorder.stop()
+  }, [begin, recorder])
 
   const talk = useCallback(() => {
     if (recording) {
-      recorder.stop()
+      stopRecording()
       return
     }
     if (current.work !== 'idle') return
     // Talk silences SayStreet at once; nothing is said while recording.
     stopVoice()
     hold(true)
-    play('record_start')
     void recorder.start()
-  }, [recording, current.work, recorder, stopVoice, hold])
+  }, [recording, current.work, recorder, stopRecording, stopVoice, hold])
 
   // Leaving the page while held (mid-recording) must never leave the announcer silent.
   useEffect(() => () => hold(false), [hold])
@@ -266,7 +293,7 @@ export default function ChatPage() {
     const up = (event: KeyboardEvent) => {
       if (event.code !== 'Space' || !isFree(event.target) || !recording) return
       event.preventDefault()
-      recorder.stop()
+      stopRecording()
     }
     window.addEventListener('keydown', down)
     window.addEventListener('keyup', up)
@@ -274,13 +301,13 @@ export default function ChatPage() {
       window.removeEventListener('keydown', down)
       window.removeEventListener('keyup', up)
     }
-  }, [talk, recording, current.work, recorder])
+  }, [talk, recording, current.work, stopRecording])
 
   // After a payment request failed without a clear answer (the connection dropped, a 502), the
   // money may still have moved. Ask the server what happened instead of guessing.
   const checkPayment = useCallback(
     async (mandate: MandateView, origin: string | undefined) => {
-      say(["I couldn't confirm the payment. Checking…"])
+      say(["I couldn't confirm the payment. Checking…"], 'status')
       try {
         await client.invalidateQueries({ queryKey: keys.conversation(mandate.conversation_id) })
         void client.invalidateQueries({ queryKey: keys.orders })
@@ -340,7 +367,7 @@ export default function ChatPage() {
     async (mandate: MandateView) => {
       try {
         await extendMandate(client, mandate)
-        say(['Two more minutes.'])
+        say(['Two more minutes.'], 'status')
       } catch (error) {
         fail(error, id)
         void client.invalidateQueries({ queryKey: keys.conversation(mandate.conversation_id) })
@@ -351,6 +378,7 @@ export default function ChatPage() {
   const onChoose = useCallback(
     (n: number) => {
       if (phase !== 'idle') return
+      play('select')
       focusTalk()
       void send(`Buy option ${n}`, 'text')
     },
@@ -400,24 +428,36 @@ export default function ChatPage() {
     endRef.current?.scrollIntoView({ block: 'end' })
   }, [id, lastId, pendingText])
 
-  const empty = !id && messages.length === 0 && !pendingText
+  const empty = !started && !id && messages.length === 0 && !pendingText
+
+  // The input sits in the middle of an empty chat and drops to the bottom with the first message. It is
+  // one element in both places; this slides it between them (FLIP) so nothing jumps.
+  // The start position was read at rest, when the message went out; this runs once when the chat stops
+  // being empty and only then looks at the layout.
+  useLayoutEffect(() => {
+    const from = dockFrom.current
+    dockFrom.current = null
+    const bar = barRef.current
+    if (empty || from === null || !bar || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    const delta = from - bar.getBoundingClientRect().top
+    if (Math.abs(delta) < 4) return
+    bar.animate([{ transform: `translateY(${delta}px)` }, { transform: 'translateY(0)' }], { duration: 320, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' })
+  }, [empty])
 
   return (
     <div className="mx-auto flex min-h-[calc(100dvh-4.1rem)] max-w-3xl flex-col px-4 sm:px-8 lg:min-h-dvh">
       {empty ? (
-        // An empty chat leads with what to do, not with "New chat".
-        <div className="pt-8 pb-4 sm:pt-10">
-          <h1 tabIndex={-1} className="text-3xl leading-tight font-bold sm:text-4xl">
-            {HEADING}
-          </h1>
-          <p className="mt-3 text-lg text-ink-muted">{REASSURE}</p>
-          {/* Once per account: what the start page set up, read right after the heading. */}
-          <AccountReady onDone={focusTalk} />
-        </div>
+        // An empty chat leads with what to do, and the input is right under it.
+        <div className="flex-[2] pt-10" />
       ) : (
-        <div className="pt-8 pb-4 sm:pt-12">
-          <PageTitle className="text-3xl sm:text-4xl">{title}</PageTitle>
+        <div className="pt-6 pb-2 sm:pt-10">
+          <PageTitle className="text-2xl sm:text-3xl">{title}</PageTitle>
         </div>
+      )}
+      {empty && (
+        <h1 tabIndex={-1} className="pb-6 text-center text-3xl leading-tight font-bold text-balance sm:text-4xl">
+          {HEADING}
+        </h1>
       )}
 
       {id && chat.isPending && <LoadingLine label="Loading the chat…" />}
@@ -428,8 +468,8 @@ export default function ChatPage() {
           <ErrorLine message="Couldn't load this chat." onRetry={() => chat.refetch()} />
         ))}
 
-      {messages.length > 0 || pendingText ? (
-        <ol className="grid flex-1 content-start gap-8 pb-8" aria-label="Messages">
+      {messages.length > 0 || pendingText || current.work === 'transcribing' ? (
+        <ol className="grid flex-1 content-start gap-8 pt-4 pb-8" aria-label="Messages">
           {messages.map((message) => (
             <MessageItem
               key={message.id}
@@ -454,6 +494,25 @@ export default function ChatPage() {
               <p className="mt-1 text-xl">{pendingText}</p>
             </li>
           )}
+          {current.work === 'transcribing' && (
+            // A recording was just sent: its place is held at once, and the words replace it.
+            <li>
+              <p className="text-sm font-semibold text-ink-muted">
+                You<span className="sr-only"> said</span>
+              </p>
+              <p className="mt-1 flex items-center gap-3 text-xl text-ink-muted">
+                <BrailleCell mode="think" className="h-6 text-accent" />
+                <span className="sr-only">Writing it down…</span>
+              </p>
+            </li>
+          )}
+          {current.work === 'thinking' && (
+            // The wait, in the conversation where the answer will appear: the cell and one word.
+            <li className="flex items-center gap-3 text-ink-muted">
+              <BrailleCell mode="think" className="h-6 text-accent" />
+              Thinking…
+            </li>
+          )}
         </ol>
       ) : (
         !empty && <div className="flex-1" />
@@ -462,15 +521,15 @@ export default function ChatPage() {
 
       <div
         ref={barRef}
-        // In a conversation the bar sticks to the bottom under a rule the width of the column. An empty
-        // chat leads with it, right under the welcome: Talk is the first thing after the heading.
+        // In a conversation the bar sticks to the bottom and never moves again. An empty chat has it
+        // in the middle, under the heading.
         className={cn(
-          'sticky bottom-0 z-10 border-t border-edge/40 bg-ground pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pt-4 sm:pb-[max(1rem,env(safe-area-inset-bottom))] [@media(max-height:32rem)]:static',
-          empty && 'static border-t-0 pt-4 sm:pt-5',
+          'z-10 bg-ground pt-3 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:pb-[max(0.75rem,env(safe-area-inset-bottom))]',
+          empty ? 'static' : 'sticky bottom-0 [@media(max-height:32rem)]:static',
         )}
       >
         {/* Not a live region (the announcer already said it), but readable when VoiceOver comes back to it. */}
-        {shownNotice && <p className="mb-3 font-semibold text-bad">{shownNotice}</p>}
+        {shownNotice && <p className="mb-3 px-3 font-semibold text-bad">{shownNotice}</p>}
         <Composer
           ref={inputRef}
           phase={phase}
@@ -488,69 +547,15 @@ export default function ChatPage() {
           talkHint={empty && !spoken ? "Use headphones so the microphone doesn't hear your screen reader." : undefined}
         />
       </div>
-      {empty && (
-        // After Talk and typing: examples to start from.
-        <div className="pt-6 pb-10">
-          <h2 className="text-sm font-semibold text-ink-muted">Try saying</h2>
-          <Starters items={SHOP} onPick={start} />
-          <h2 className="mt-6 text-sm font-semibold text-ink-muted">Try it on your sample orders</h2>
-          <Starters items={ORDERS} onPick={start} />
-
-          {/* The one thing no other store does: paying means saying the amount. Plain text, no
-              tour: three swipes for a screen reader, easy to skip, there whenever a chat is empty. */}
-          <section aria-labelledby="how-title" className="mt-10 border-t border-line pt-6">
-            <h2 id="how-title" className="text-lg font-bold">
-              How it works
-            </h2>
-            <ol className="mt-3 grid gap-3">
-              {HOW.map((step, i) => (
-                <li key={step} className="grid grid-cols-[2rem_minmax(0,1fr)] gap-2">
-                  <span aria-hidden="true" className="data text-accent">
-                    {i + 1}
-                  </span>
-                  <span className="text-ink-muted">{step}</span>
-                </li>
-              ))}
-              <li className="grid grid-cols-[2rem_minmax(0,1fr)] gap-2">
-                <span aria-hidden="true" className="data text-accent">
-                  3
-                </span>
-                <span className="text-ink-muted">
-                  To pay, <strong className="font-semibold text-ink">say the amount</strong>, like{' '}
-                  <span className="data text-ink">"pay thirty-one oh nine"</span>. Anything else, and nothing is paid.
-                </span>
-              </li>
-            </ol>
-          </section>
+      {empty ? (
+        // Examples to start from; they leave with the first message.
+        <div className="flex flex-[3] flex-col items-center pt-4 pb-10">
+          <h2 className="sr-only">Try saying</h2>
+          <Starters items={STARTERS} onPick={start} />
         </div>
+      ) : (
+        <div className="pb-2" />
       )}
-      {/* Below the input, outside the sticky bar: reachable by scrolling, never covering the chat. */}
-      <div className="grid gap-4 pt-2 pb-8">
-        {/* After the conversation, so VoiceOver reads the chat before this control. */}
-        {id && chat.data && (
-          <ConfirmDialog
-            title="Delete this chat?"
-            description="This deletes the chat and its messages for good. Your orders stay on the Orders page."
-            confirm="Delete chat"
-            danger
-            onConfirm={() =>
-              remove.mutate(id, {
-                onSuccess: () => {
-                  say(['Chat deleted.'])
-                  navigate('/chat', { replace: true })
-                },
-                onError: (error) => say([error instanceof ApiError && error.say ? error.say : "Couldn't delete the chat. Try again."]),
-              })
-            }
-            trigger={
-              <Button variant="quiet" className="justify-self-start">
-                <Trash aria-hidden="true" size={20} />
-                Delete chat
-              </Button>
-            }
-          />
-        )}
-      </div>
     </div>
   )
 }
@@ -624,13 +629,13 @@ function MessageItem({ message, conversationId, liveMandate, busy, onPay, onCanc
 
 function Starters({ items, onPick }: { items: string[]; onPick: (text: string) => void }) {
   return (
-    <ul className="mt-2 flex flex-wrap gap-2">
+    <ul className="flex flex-wrap justify-center gap-2">
       {items.map((text) => (
         <li key={text}>
           <button
             type="button"
             onClick={() => onPick(text)}
-            className="min-h-12 rounded-full border border-edge px-5 font-semibold hover:border-ink hover:bg-surface-1"
+            className="min-h-11 rounded-full border border-edge px-4 text-base font-semibold hover:border-ink hover:bg-surface-1"
           >
             {text}
           </button>

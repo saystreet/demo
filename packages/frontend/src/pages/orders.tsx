@@ -104,9 +104,9 @@ function Groups({ orders, remember }: { orders: OrderSummary[]; remember: (id: s
           </>
         ) : (
           <p className="mt-1 text-ink-muted">
-            Nothing bought through SayStreet yet.{' '}
+            Nothing bought yet.{' '}
             <Link to="/chat" className="font-semibold text-ink underline underline-offset-4 hover:text-accent">
-              Start a chat to buy something
+              Start a chat
             </Link>
             .
           </p>
@@ -118,7 +118,7 @@ function Groups({ orders, remember }: { orders: OrderSummary[]; remember: (id: s
             Sample orders
           </h2>
           <p className="mt-1 text-ink-muted">
-            They came with the demo account, so you can try tracking and returns right away. No money moved.
+            Try tracking and returns on these. No money moved.
           </p>
           <OrderList orders={samples} remember={remember} />
         </section>

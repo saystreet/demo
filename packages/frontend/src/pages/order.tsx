@@ -1,8 +1,10 @@
 import { formatUSD, type OrderView, type PayPalStep, speakAmount } from '@saystreet/shared'
-import { ArrowCounterClockwise, ChatCircleText, Copy, PaypalLogo, ShoppingCart } from '@phosphor-icons/react'
+import { ArrowCounterClockwise, ArrowLeft, ChatCircleText, Copy, PaypalLogo, ShoppingCart } from '@phosphor-icons/react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
+import { Disclosure } from '../components/ui/disclosure'
+import { useBack } from '../lib/back'
 import { applyTurn, buyProduct, startOrderChat, useOrder, useReturnOrder } from '../api/queries'
 import { ErrorLine, LoadingLine, PageTitle, Section, usePageTitle } from '../components/page'
 import { SandboxActivityLink } from '../components/paypal'
@@ -51,10 +53,13 @@ export default function OrderPage() {
   return <Order o={o} full={!order.isPlaceholderData} />
 }
 
+// Back goes where the person came from: the chat that showed this order, or the orders list.
 function AllOrders() {
+  const back = useBack({ to: '/orders', label: 'All orders' })
   return (
-    <Link to="/orders" className="mb-6 inline-flex min-h-12 items-center font-semibold underline underline-offset-4 hover:text-accent">
-      All orders
+    <Link to={back.to} className="mb-6 inline-flex min-h-12 items-center gap-2 font-semibold underline underline-offset-4 hover:text-accent">
+      <ArrowLeft aria-hidden="true" size={18} weight="bold" />
+      {back.label}
     </Link>
   )
 }
@@ -120,16 +125,6 @@ function Order({ o, full }: { o: OrderView; full: boolean }) {
             </ol>
           </Section>
 
-          <Section title="Payment">
-            <Receipt o={o} />
-          </Section>
-
-          {!!o.paypal_trail?.length && (
-            <Section title="At PayPal">
-              <PayPalTrail steps={o.paypal_trail} />
-            </Section>
-          )}
-
           <Section title="Shipping to">
             <address className="not-italic">
               {o.ship_to.name}
@@ -145,6 +140,15 @@ function Order({ o, full }: { o: OrderView; full: boolean }) {
               {o.ship_to.city}, {o.ship_to.state} {o.ship_to.postal}
             </address>
           </Section>
+          <Section title="Payment">
+            <Receipt o={o} />
+          </Section>
+
+          {!!o.paypal_trail?.length && (
+            <Disclosure summary="PayPal details">
+              <PayPalTrail steps={o.paypal_trail} />
+            </Disclosure>
+          )}
         </div>
       )}
     </div>
@@ -156,7 +160,8 @@ function TrackingNumber({ value }: { value: string }) {
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(value)
-      say(['Tracking number copied.'])
+      play('done')
+      say(['Tracking number copied.'], 'status')
     } catch {
       say(["Couldn't copy. Select the number to copy it."])
     }
@@ -381,8 +386,8 @@ function Actions({ o }: { o: OrderView }) {
               : `Return the ${o.title}? PayPal sends ${total} back to the PayPal sandbox account. In this demo there's nothing to ship back.`}
           </p>
           <div className="grid gap-3 sm:flex sm:flex-wrap">
-            <Button variant="danger" size="lg" aria-disabled={returning.isPending || undefined} onClick={() => !returning.isPending && confirmReturn()}>
-              {returning.isPending ? 'Refunding…' : o.is_sample ? 'Yes, return it' : `Yes, refund ${total}`}
+            <Button variant="danger" size="lg" pending={returning.isPending} onClick={() => !returning.isPending && confirmReturn()}>
+              {o.is_sample ? 'Yes, return it' : `Yes, refund ${total}`}
             </Button>
             <Button variant="secondary" size="lg" onClick={keep}>
               No, keep it
@@ -398,14 +403,14 @@ function Actions({ o }: { o: OrderView }) {
             </Button>
           )}
           {o.product_source === 'catalog' && (
-            <Button variant="secondary" size="lg" aria-disabled={busy !== null || undefined} onClick={buyAgain}>
+            <Button variant="secondary" size="lg" aria-disabled={busy !== null || undefined} pending={busy === 'again'} onClick={buyAgain}>
               <ShoppingCart aria-hidden="true" size={22} />
-              {busy === 'again' ? 'Checking the price…' : 'Buy again'}
+              Buy again
             </Button>
           )}
-          <Button variant="secondary" size="lg" aria-disabled={busy !== null || undefined} onClick={ask}>
+          <Button variant="secondary" size="lg" aria-disabled={busy !== null || undefined} pending={busy === 'ask'} onClick={ask}>
             <ChatCircleText aria-hidden="true" size={22} />
-            {busy === 'ask' ? 'Opening the chat…' : 'Ask about this order'}
+            Ask about this order
           </Button>
         </div>
       )}

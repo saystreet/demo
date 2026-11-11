@@ -58,7 +58,7 @@ export default function ProductPage() {
   useEffect(() => {
     if (!product.data || announced.current || typeof passedTitle === 'string') return
     announced.current = true
-    if (document.activeElement?.tagName === 'H1') say([product.data.title])
+    if (document.activeElement?.tagName === 'H1') say([product.data.title], 'status')
   }, [product.data, passedTitle, say])
 
   // A failed load is said, not only shown; after "Try again" works, focus returns to the h1.
@@ -77,7 +77,7 @@ export default function ProductPage() {
     if (!p || busy) return
     setBusy(kind)
     setNotice(null)
-    say([kind === 'buy' ? 'Checking the price with the store…' : 'Opening a chat…'])
+    say([kind === 'buy' ? 'Checking the price with the store…' : 'Opening a chat…'], 'status')
     try {
       const response =
         kind === 'buy'
@@ -235,13 +235,13 @@ function Product({
 
       <div className="mt-6 grid gap-3 sm:flex sm:flex-wrap">
         {canBuy && (
-          <Button size="lg" aria-describedby="buy-help" aria-disabled={busy !== null || undefined} onClick={onBuy}>
-            {busy === 'buy' ? 'Checking the price…' : `Buy for ${total}`}
+          <Button size="lg" aria-describedby="buy-help" aria-disabled={busy !== null || undefined} pending={busy === 'buy'} onClick={onBuy}>
+            {`Buy for ${total}`}
           </Button>
         )}
-        <Button size="lg" variant={canBuy ? 'secondary' : 'primary'} aria-disabled={busy !== null || undefined} onClick={onAsk}>
+        <Button size="lg" variant={canBuy ? 'secondary' : 'primary'} aria-disabled={busy !== null || undefined} pending={busy === 'ask'} onClick={onAsk}>
           <ChatCircleText aria-hidden="true" size={22} />
-          {busy === 'ask' ? 'Opening the chat…' : 'Ask about this product'}
+          Ask about this product
         </Button>
       </div>
       {notice && <p className="mt-3 font-semibold text-bad">{notice}</p>}

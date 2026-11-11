@@ -20,7 +20,7 @@ import { ChoiceGroup } from '../components/ui/choice-group'
 import { Field, Input, Select } from '../components/ui/field'
 import { ApiError } from '../lib/api'
 import { useAnnouncer } from '../lib/announcer'
-import { play } from '../lib/sounds'
+import { play, setSoundsEnabled } from '../lib/sounds'
 
 // Settings (spec 16.8). Choices save the moment they're made; the address saves with its button.
 // Every save is said ("Saved: $150 limit per purchase") and shown right under what changed, where
@@ -34,7 +34,6 @@ export default function SettingsPage() {
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 sm:px-8 sm:py-12">
       <PageTitle>Settings</PageTitle>
-      <p className="mt-3 text-ink-muted">Changes save as soon as you choose.</p>
       {me.isPending && <LoadingLine label="Loading your settings…" />}
       {me.isError && <ErrorLine message="Couldn't load your settings." onRetry={() => me.refetch()} />}
       {me.data && <SettingsForm account={me.data} />}
@@ -50,16 +49,28 @@ type Save = (key: StatusKey, body: UpdateAccountRequest, saved: string) => Promi
 function SettingsForm({ account }: { account: AccountView }) {
   const update = useUpdateAccount()
   const client = useQueryClient()
-  const { say, configure } = useAnnouncer()
+  const { say, configure, stop } = useAnnouncer()
   const [status, setStatus] = useState<Status>(null)
 
   const save: Save = async (key, body, saved) => {
+    // The sound comes with the click, not after the save. Turning sounds on has to enable them first.
+    if (key === 'sounds') {
+      setSoundsEnabled(body.sounds_on === true)
+      play(body.sounds_on ? 'on' : 'off', true)
+    } else if (key !== 'address') play('select')
     try {
       await update.mutateAsync(body)
-      say([`Saved: ${saved}.`])
-      setStatus({ key, ok: true, text: `Saved: ${saved}` })
+      // A change that worked says nothing: the control already shows it. Only the address, saved with
+      // its own button, answers (a short "Saved." for a screen reader, nothing drawn).
+      setStatus(null)
+      if (key === 'address') {
+        stop()
+        play('done')
+        say(['Saved.'], 'status')
+      }
       return { ok: true }
     } catch (error) {
+      play('error')
       // The cache is already back to the old value; let the voice match it before speaking.
       const now = client.getQueryData<AccountView>(keys.me)
       if (now) configure(now.voice_mode, now.speech_rate)
@@ -115,7 +126,7 @@ function PayPalSection({ account }: { account: AccountView }) {
   const connect = async () => {
     if (busy) return
     setBusy(true)
-    say(['Opening PayPal…'])
+    say(['Opening PayPal…'], 'status')
     try {
       const { approve_url } = await connectPayPal('settings')
       window.location.assign(approve_url)
@@ -160,7 +171,7 @@ function PayPalSection({ account }: { account: AccountView }) {
       <p className="mt-1 text-ink-muted">
         {account.wallet.own
           ? 'Purchases pay with the PayPal sandbox account you approved. No real money moves.'
-          : 'Purchases pay with a PayPal sandbox test buyer, so there is nothing to log in to. No real money moves.'}
+          : 'Pays with a sandbox test buyer. No real money moves.'}
       </p>
       <div className="mt-4 flex flex-wrap items-center gap-3">
         {account.wallet.own ? (
@@ -168,14 +179,14 @@ function PayPalSection({ account }: { account: AccountView }) {
             Use the demo buyer again
           </Button>
         ) : (
-          <Button variant="secondary" aria-disabled={busy || undefined} onClick={connect}>
+          <Button variant="secondary" pending={busy} onClick={connect}>
             <PaypalLogo aria-hidden="true" size={20} weight="fill" />
-            {busy ? 'Opening PayPal…' : 'Use your own PayPal sandbox account'}
+            Use your own PayPal sandbox account
           </Button>
         )}
       </div>
       {!account.wallet.own && (
-        <p className="mt-2 text-sm text-ink-muted">Opens PayPal's sandbox login in this tab, then brings you back. Use a sandbox personal account, not your real PayPal.</p>
+        <p className="mt-2 text-sm text-ink-muted">Opens PayPal's sandbox login, then returns here. Use a sandbox account, never your real one.</p>
       )}
       {status && <SaveStatus ok={status.ok} text={status.text} />}
     </Section>
@@ -199,7 +210,9 @@ type SectionProps = { account: AccountView; save: Save; statusFor: (key: StatusK
 const RATES = [
   { value: '0.75', label: 'Slower', description: '0.75×' },
   { value: '1', label: 'Normal', description: '1×' },
-  { value: '1.25', label: 'Faster', description: '1.25×' },
+  { value: '1.25', label: 'Fast', description: '1.25×' },
+  { value: '1.5', label: 'Faster', description: '1.5×' },
+  { value: '2', label: 'Fastest', description: '2×' },
 ] as const
 
 function VoiceSection({ account, save, statusFor }: SectionProps) {
@@ -207,7 +220,7 @@ function VoiceSection({ account, save, statusFor }: SectionProps) {
 
   const sample = () => {
     play('options')
-    say(['This is how SayStreet sounds. Three options. One: stainless kettle, $39.99 with shipping.'])
+    say(['This is how SayStreet sounds.'])
   }
 
   return (
@@ -228,12 +241,12 @@ function VoiceSection({ account, save, statusFor }: SectionProps) {
               {
                 value: 'screen_reader',
                 label: 'I use a screen reader',
-                description: 'Your screen reader reads the replies. SayStreet stays quiet apart from short sounds.',
+                description: 'Your screen reader reads the replies.',
               },
               {
                 value: 'spoken',
                 label: 'Read replies aloud',
-                description: "SayStreet speaks every reply in your browser's voice. Using a screen reader? Choose 'I use a screen reader'.",
+                description: 'SayStreet speaks every reply. No screen reader needed.',
               },
             ]}
           />
@@ -248,9 +261,13 @@ function VoiceSection({ account, save, statusFor }: SectionProps) {
             <ChoiceGroup
               labelledBy="speed-title"
               columns
-              value={String(account.speech_rate) as '0.75' | '1' | '1.25'}
+              value={String(account.speech_rate) as (typeof RATES)[number]['value']}
+              // The new speed is heard right away, with a sentence, so there is no guessing what 1.5× sounds like.
               onChange={(rate) =>
-                void save('speed', { speech_rate: Number(rate) as 0.75 | 1 | 1.25 }, `${RATES.find((r) => r.value === rate)?.label.toLowerCase()} speed`)
+                void save('speed', { speech_rate: Number(rate) as (typeof account)['speech_rate'] }, `${RATES.find((r) => r.value === rate)?.label.toLowerCase()} speed`).then(
+                  // After the account cache has the new rate and the announcer has it.
+                  (result) => result.ok && window.setTimeout(sample, 200),
+                )
               }
               choices={RATES.map((r) => ({ ...r }))}
             />
@@ -274,16 +291,12 @@ function VoiceSection({ account, save, statusFor }: SectionProps) {
                 Sounds
               </span>
               <span id="sounds-description" className="block text-sm text-ink-muted">
-                Short tones when recording starts, a message is sent, options arrive, a payment goes through or something goes wrong.
+                A short tone for each step, from recording to payment.
               </span>
             </span>
           </label>
           {statusFor('sounds')}
         </div>
-
-        <Button variant="secondary" className="justify-self-start" onClick={sample}>
-          Play a sample
-        </Button>
       </div>
     </Section>
   )
@@ -312,7 +325,7 @@ function LimitsSection({ account, save, statusFor }: SectionProps) {
 
   return (
     <Section title="Spending limits">
-      <p className="-mt-1 text-ink-muted">SayStreet won't pay more than these, even if a higher amount is said.</p>
+      <p className="-mt-1 text-ink-muted">Nothing above these is ever paid.</p>
       <p className="mt-2 mb-6">
         This week: <span className="data">{dollars(spent)}</span> of <span className="data">{dollars(weekly)}</span> spent,{' '}
         <span className="data">{dollars(left)}</span> left.
@@ -426,7 +439,7 @@ function AddressSection({ account, save, statusFor }: SectionProps) {
 
   return (
     <Section title="Shipping address">
-      <p className="-mt-1 mb-5 text-ink-muted">Used from your next purchase. Orders keep the address they were bought with.</p>
+      <p className="-mt-1 mb-5 text-ink-muted">Used from your next purchase.</p>
       <form onSubmit={submit} noValidate className="grid gap-5">
         <AddressInput label="Full name" field="name" address={address} set={set} error={errors.name} autoComplete="shipping name" />
         <AddressInput label="Address line 1" field="line1" address={address} set={set} error={errors.line1} autoComplete="shipping address-line1" />
@@ -480,11 +493,11 @@ function AddressSection({ account, save, statusFor }: SectionProps) {
         </div>
         <p>
           <span className="text-ink-muted">Country: </span>United States.{' '}
-          <span className="text-ink-muted">SayStreet's stores ship within the US for now.</span>
+          
         </p>
         <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
-          <Button type="submit" aria-disabled={saving || undefined}>
-            {saving ? 'Saving…' : 'Save address'}
+          <Button type="submit" pending={saving}>
+            Save address
           </Button>
           {/* Beside the button that was pressed, not up by the heading. */}
           <div className="[&>p]:mt-0">{statusFor('address')}</div>

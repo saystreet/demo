@@ -1,12 +1,13 @@
 import type { ConversationSummary } from '@saystreet/shared'
-import { DotsThreeVertical, Package, Plus, Sliders } from '@phosphor-icons/react'
+import { DotsThreeVertical, Package, Plus, Question, Sliders } from '@phosphor-icons/react'
 import { Dialog, DropdownMenu } from 'radix-ui'
 import { type FormEvent, useId, useRef, useState } from 'react'
 import { Link, NavLink, useMatch, useNavigate, useParams } from 'react-router'
-import { useConversations, useDeleteConversation, useMe, useRenameConversation } from '../api/queries'
+import { useConversations, useDeleteConversation, useRenameConversation } from '../api/queries'
 import { ApiError } from '../lib/api'
 import { useAnnouncer } from '../lib/announcer'
 import { cn } from '../lib/cn'
+import { OPEN_WELCOME } from './chat/welcome'
 import { ConfirmDialog } from './ui/alert-dialog'
 import { Button, buttonClass } from './ui/button'
 import { Input } from './ui/field'
@@ -21,7 +22,6 @@ const RECENT = 20
 
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const { data: conversations } = useConversations()
-  const { data: me } = useMe()
   const { id: currentId } = useParams()
   const [showAll, setShowAll] = useState(false)
   // On an order page "Orders" is the section you're in, not the page itself.
@@ -36,9 +36,9 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
 
   return (
     <nav aria-label="SayStreet" className="flex h-full flex-col gap-6 p-4">
-      <Link to="/chat" onClick={onNavigate} className="flex min-h-12 items-center self-start rounded-md px-1">
-        <img src="/brand/lockup-for-dark-bg.svg" alt="SayStreet, new chat" width="160" height="32" className="h-8 w-auto" />
-      </Link>
+      <a href="https://saystreet.app" className="flex min-h-12 items-center self-start rounded-md px-1">
+        <img src="/brand/lockup-for-dark-bg.svg" alt="SayStreet website" width="160" height="32" className="h-8 w-auto" />
+      </a>
 
       <Link to="/chat" onClick={onNavigate} data-new-chat className={buttonClass('secondary', 'md', 'w-full justify-start')}>
         <Plus aria-hidden="true" size={20} weight="bold" />
@@ -46,7 +46,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       </Link>
 
       <section aria-labelledby={`${chatsId}-title`} className="min-h-0 flex-1 overflow-y-auto">
-        <h2 id={`${chatsId}-title`} className="px-1 text-sm font-semibold text-ink-muted">
+        <h2 id={`${chatsId}-title`} className="sr-only">
           Chats
         </h2>
         {all.length ? (
@@ -91,14 +91,29 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             Settings
           </NavLink>
         </li>
+        <li>
+          <button
+            type="button"
+            onClick={() => {
+              onNavigate?.()
+              window.dispatchEvent(new Event(OPEN_WELCOME))
+            }}
+            className={cn(navClass({ isActive: false }), 'w-full text-left')}
+          >
+            <Question aria-hidden="true" size={22} />
+            How it works
+          </button>
+        </li>
       </ul>
-      {me && (
-        <p className="px-3 text-sm text-ink-muted">
-          <span className="block font-semibold text-ink">{me.name}</span>
-          {/* Always in view: what this is, wherever a judge lands. */}
-          Demo account. A PayPal AI Hackathon project; payments use the PayPal sandbox, so no real money moves.
-        </p>
-      )}
+      {/* Always in view, and one line: what this is, wherever a judge lands. */}
+      <a
+        href="https://paypalaihackathon.devpost.com/"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex min-h-11 items-center px-3 text-sm text-ink-muted underline decoration-edge underline-offset-4 hover:text-ink hover:decoration-ink"
+      >
+        PayPal AI Hackathon demo<span className="sr-only"> (opens in a new tab)</span>
+      </a>
     </nav>
   )
 }
@@ -139,7 +154,7 @@ function ChatRow({ chat, current, onNavigate }: { chat: ConversationSummary; cur
     confirmed.current = true
     remove.mutate(chat.id, {
       onSuccess: () => {
-        say(['Chat deleted.'])
+        say(['Chat deleted.'], 'status')
         if (current) navigate('/chat', { replace: true })
       },
       onError: (error) => say([error instanceof ApiError && error.say ? error.say : "Couldn't delete the chat. Try again."]),
