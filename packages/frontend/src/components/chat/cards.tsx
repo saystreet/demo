@@ -1,10 +1,8 @@
-import { type Choice, formatUSD, type MandateView, type OptionCard, type OrderSummary, type ProductView } from '@saystreet/shared'
+import { formatUSD, type MandateView, type OptionCard, type OrderSummary } from '@saystreet/shared'
 import { useEffect, useId, useState } from 'react'
 import { PaypalLogo } from '@phosphor-icons/react'
 import { Link } from 'react-router'
 import { useMe } from '../../api/queries'
-import { api } from '../../lib/api'
-import { Input, Select } from '../ui/field'
 import { useBackState } from '../../lib/back'
 import { Disclosure } from '../ui/disclosure'
 import { cn } from '../../lib/cn'
@@ -15,27 +13,22 @@ import { Button } from '../ui/button'
 
 // Cards under SayStreet's messages (spec 16.4): options, the payment ledger, orders.
 
-export type BuyChoice = { product_id: string; merchant_domain: string; title: string; selection: { name: string; value: string }[] }
-
 type OptionsProps = {
   options: OptionCard[]
   conversationId: string | null
   busy: boolean
-  active: boolean // the newest list in the chat: the only one whose numbers can be said
-  paying: boolean // a payment is waiting in this chat
-  onChoose: (buy: BuyChoice) => void
+  active: boolean // the newest list in the chat: the only one with numbers and Buy
+  onChoose: (option: OptionCard) => void
   onMore: (() => void) | null // the latest options, when the search has more: "More options"
 }
 
-// Choosing works by voice ("two") and with a button, so nobody has to guess it.
-//
-// Every card is the same size and Buy sits in the same place, by the product, with the reason it is off across
-// from it, so the list never reflows. What the person can spend is worked out here, from their live limits (the
-// per-purchase limit and what is left this week), not from the snapshot that came with the message. A size, colour or
-// storage the product needs is chosen on the card itself (a list, or a field where the listing gives none), or said:
-// "size 10" in the chat comes back as the same card with it already chosen. Buy stays focusable when it is off and
-// says why, so a screen reader finds it and hears the reason. Only the newest list has numbers: they are what "option
-// two" means, and an older list says nothing a person could say.
+// The list of options under SayStreet's message. Choosing works by voice ("buy two") and with the Buy button,
+// which says the same thing in the chat: "Buy option 2". So the numbers and Buy belong to the newest list only,
+// the one the numbers mean; an older list stays as a record, with its photos, titles and prices, and each title
+// still opens the product. Every card is the same size and Buy sits in the same place, by the product, with the
+// reason it is off across from it, so nothing moves. A size or colour is asked for in the chat and said or typed
+// there, like everything else. What the person can spend is worked out from their live limits (the per-purchase
+// limit and what is left this week), not from the snapshot that came with the message.
 const money = (cents: number) => formatUSD(cents)
 
 export function limitNote(totalCents: number, limits: { per_purchase_cents: number; weekly_cents: number; spent_this_week_cents: number } | undefined, snapshotOver?: boolean): string | null {
@@ -46,12 +39,12 @@ export function limitNote(totalCents: number, limits: { per_purchase_cents: numb
   return null
 }
 
-export function OptionsCard({ options, conversationId, busy, active, paying, onChoose, onMore }: OptionsProps) {
+export function OptionsCard({ options, conversationId, busy, active, onChoose, onMore }: OptionsProps) {
   return (
     <>
       <ol className="mt-4 divide-y divide-line border-y border-line">
         {options.map((option) => (
-          <OptionRow key={`${option.n}-${option.product_id}`} option={option} conversationId={conversationId} busy={busy} active={active} paying={paying} onChoose={onChoose} />
+          <OptionRow key={`${option.n}-${option.product_id}`} option={option} conversationId={conversationId} busy={busy} active={active} onChoose={onChoose} />
         ))}
       </ol>
       {active && <p className="mt-3 text-ink-muted">Say a number to choose, or press Buy. You'll hear the total before anything is paid.</p>}
@@ -69,142 +62,63 @@ function OptionRow({
   conversationId,
   busy,
   active,
-  paying,
   onChoose,
 }: {
   option: OptionCard
   conversationId: string | null
   busy: boolean
   active: boolean
-  paying: boolean
-  onChoose: (buy: BuyChoice) => void
+  onChoose: (option: OptionCard) => void
 }) {
   const { data: me } = useMe()
-  // Another colour is another listing with its own price: choosing it swaps the card's product in place.
-  const [shown, setShown] = useState<OptionCard>(option)
-  const [swapping, setSwapping] = useState(false)
-  // What is chosen on the card, by name; what the listing already says is chosen to begin with.
-  const [picked, setPicked] = useState<Record<string, string>>(() => Object.fromEntries((option.choices ?? []).map((c) => [c.name, c.chosen ?? ''])))
   const uid = useId()
-
-  const choices = shown.choices ?? []
-  const missing = choices.find((c) => c.required && !picked[c.name])
-  const note = limitNote(shown.total_cents, me?.limits, shown.over_limit) ?? (paying ? 'Finish or cancel the payment first' : null) ?? (missing ? `Choose a ${missing.name.toLowerCase()}` : null)
-  const rating = ratingWords(shown.rating, shown.rating_count)
+  const note = limitNote(option.total_cents, me?.limits, option.over_limit)
+  const rating = ratingWords(option.rating, option.rating_count)
   const noteId = `${uid}-note`
-  const href = `/products/${encodeURIComponent(shown.product_id)}?store=${encodeURIComponent(shown.merchant_domain)}&n=${shown.n}${conversationId ? `&c=${conversationId}` : ''}`
-
-  const pick = async (choice: Choice, label: string) => {
-    const linked = choice.values.find((v) => v.label === label)?.product_id
-    setPicked((now) => ({ ...now, [choice.name]: label }))
-    if (!linked || linked === shown.product_id) return
-    setSwapping(true)
-    try {
-      const view = await api<ProductView>(`/products/${encodeURIComponent(linked)}?store=${encodeURIComponent(shown.merchant_domain)}`)
-      setShown((now) => ({
-        ...now,
-        product_id: view.product_id,
-        title: view.title,
-        image_url: view.image_url,
-        image_alt: view.image_alt,
-        item_cents: view.item_cents,
-        shipping_cents: view.shipping_cents,
-        total_cents: view.total_cents,
-        over_limit: undefined,
-        choices: view.choices,
-      }))
-      setPicked(Object.fromEntries(view.choices.map((c) => [c.name, c.chosen ?? ''])))
-    } catch {
-      // The other listing didn't load: the card stays as it was, with the choice put back.
-      setPicked((now) => ({ ...now, [choice.name]: choice.chosen ?? '' }))
-    } finally {
-      setSwapping(false)
-    }
-  }
-
-  const buy = () => {
-    if (busy || swapping || note) return
-    const selection = choices.filter((c) => picked[c.name] && !c.values.some((v) => v.product_id)).map((c) => ({ name: c.name, value: picked[c.name]! }))
-    onChoose({ product_id: shown.product_id, merchant_domain: shown.merchant_domain, title: shown.title, selection })
-  }
+  const href = `/products/${encodeURIComponent(option.product_id)}?store=${encodeURIComponent(option.merchant_domain)}&n=${option.n}${conversationId ? `&c=${conversationId}` : ''}`
 
   return (
     <li className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-x-4 gap-y-1 py-4 sm:grid-cols-[5.5rem_minmax(0,1fr)_auto]">
       {/* The picture opens the details with a mouse or a tap; the title is the link for everyone else. */}
-      <Link to={href} state={{ title: shown.title }} tabIndex={-1} aria-hidden="true" className="col-start-1 row-span-4 row-start-1 block self-start">
-        {shown.image_url ? <ProductImage src={shown.image_url} alt="" size={88} className="p-1" /> : <span className="block aspect-square w-full rounded-(--radius-control) bg-surface-2" />}
+      <Link to={href} state={{ title: option.title }} tabIndex={-1} aria-hidden="true" className="col-start-1 row-span-3 row-start-1 block self-start">
+        {option.image_url ? <ProductImage src={option.image_url} alt="" size={88} className="p-1" /> : <span className="block aspect-square w-full rounded-(--radius-control) bg-surface-2" />}
       </Link>
       <div className="col-start-2 row-start-1 min-w-0">
         <p className="text-lg font-semibold">
           {active && (
             <>
-              <span className="data mr-2 text-accent">{shown.n}</span>
+              <span className="data mr-2 text-accent">{option.n}</span>
               <span className="sr-only">. </span>
             </>
           )}
-          <Link to={href} state={{ title: shown.title }} className="underline decoration-edge underline-offset-4 hover:text-accent hover:decoration-accent">
-            {shown.title}
+          <Link to={href} state={{ title: option.title }} className="underline decoration-edge underline-offset-4 hover:text-accent hover:decoration-accent">
+            {option.title}
             <span className="sr-only">, details</span>
           </Link>
         </p>
         <p className="text-ink-muted">
-          {shown.detail && <span className="font-semibold text-ink">{shown.detail}, </span>}
-          {shown.merchant}
+          {option.detail && <span className="font-semibold text-ink">{option.detail}, </span>}
+          {option.merchant}
           {rating && <span>, {rating}</span>}
         </p>
-        {shown.image_alt && <p className="sr-only">{shown.image_alt}</p>}
+        {option.image_alt && <p className="sr-only">{option.image_alt}</p>}
       </div>
       <p className="data col-start-2 text-lg sm:col-start-3 sm:row-start-1 sm:text-right">
-        {formatUSD(shown.total_cents)}
+        {formatUSD(option.total_cents)}
         <span className="ml-2 font-sans text-sm text-ink-muted sm:ml-0 sm:block">with shipping</span>
       </p>
-      {/* What this product comes in, chosen here: a list, or a field where the listing gives no values. */}
-      {choices.length > 0 && (
-        <div className="col-start-2 flex flex-wrap gap-3 pt-1 sm:col-[2/4]">
-          {choices.map((choice) => {
-            const id = `${uid}-${choice.name}`
-            return (
-              <div key={choice.name} className="grid min-w-[8.5rem] flex-1 gap-1 sm:max-w-[14rem]">
-                <label htmlFor={id} className="text-sm font-semibold text-ink-muted">
-                  {choice.name}
-                </label>
-                {choice.values.length > 0 ? (
-                  <Select id={id} value={picked[choice.name] ?? ''} onChange={(event) => void pick(choice, event.target.value)} className="min-h-11">
-                    {!picked[choice.name] && <option value="">Choose</option>}
-                    {choice.values.map((v) => (
-                      <option key={v.label} value={v.label}>
-                        {v.label}
-                      </option>
-                    ))}
-                  </Select>
-                ) : (
-                  <Input
-                    id={id}
-                    value={picked[choice.name] ?? ''}
-                    onChange={(event) => setPicked((now) => ({ ...now, [choice.name]: event.target.value }))}
-                    maxLength={40}
-                    autoComplete="off"
-                    placeholder="e.g. 10"
-                    className="min-h-11"
-                  />
-                )}
-              </div>
-            )
-          })}
+      {/* Buy by the product, the reason across from it. The row is as tall as the button either way. */}
+      {active && (
+        <div className="col-start-2 flex min-h-12 items-center gap-4 sm:col-[2/4]">
+          <Button variant="secondary" aria-disabled={busy || !!note || undefined} aria-describedby={note ? noteId : undefined} onClick={() => !busy && !note && onChoose(option)}>
+            Buy
+            <span className="sr-only"> option {option.n}, {option.title}</span>
+          </Button>
+          <p id={noteId} className="min-w-0 flex-1 text-right text-sm font-semibold text-bad">
+            {note}
+          </p>
         </div>
       )}
-      {/* Buy by the product, the reason across from it. The row is as tall as the button either way. */}
-      <div className="col-start-2 flex min-h-12 items-center gap-4 sm:col-[2/4]">
-        <Button variant="secondary" aria-disabled={busy || swapping || !!note || undefined} aria-describedby={note ? noteId : undefined} onClick={buy}>
-          Buy
-          <span className="sr-only">
-            {active ? ` option ${shown.n},` : ''} {shown.title}
-          </span>
-        </Button>
-        <p id={noteId} className="min-w-0 flex-1 text-right text-sm font-semibold text-bad">
-          {note}
-        </p>
-      </div>
     </li>
   )
 }
@@ -224,6 +138,9 @@ type MandateProps = {
 // a refusal with the engine's log line, or a short closed note.
 export function MandateCard({ mandate, live, busy, onPay, onCancel, onExpiring, onExpired, onExtend }: MandateProps) {
   const back = useBackState()
+  const { data: me } = useMe()
+  // The same check as on the option cards, from the live limits: a payment that doesn't fit can't be pressed.
+  const limit = live ? limitNote(mandate.total_cents, me?.limits) : null
   const total = formatUSD(mandate.total_cents)
   // Set by the countdown at zero; "More time" brings a new expires_at, which starts a fresh countdown.
   const [expiredAt, setExpiredAt] = useState<string | null>(null)
@@ -352,7 +269,7 @@ export function MandateCard({ mandate, live, busy, onPay, onCancel, onExpiring, 
       ) : (
         <>
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
-            <Button size="lg" aria-disabled={busy || undefined} onClick={() => !busy && onPay(mandate)}>
+            <Button size="lg" aria-disabled={busy || !!limit || undefined} aria-describedby={limit ? `limit-${mandate.id}` : undefined} onClick={() => !busy && !limit && onPay(mandate)}>
               <PaypalLogo aria-hidden="true" size={22} weight="fill" />
               Pay {total} with PayPal<span className="sr-only"> to {mandate.merchant}</span>
             </Button>
@@ -360,7 +277,11 @@ export function MandateCard({ mandate, live, busy, onPay, onCancel, onExpiring, 
               Cancel payment
             </Button>
           </div>
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+          {/* Always here, empty when the payment fits, so the card never grows. */}
+          <p id={`limit-${mandate.id}`} className="mt-2 min-h-5 text-sm font-semibold text-bad">
+            {limit}
+          </p>
+          <div className="mt-1 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
             <p className="text-ink-muted">Or say "pay {mandate.spoken}".</p>
             <Button variant="quiet" aria-disabled={busy || undefined} onClick={() => !busy && onExtend(mandate)}>
               More time

@@ -1,4 +1,4 @@
-import type { ConversationState, MandateView, Message, TurnRequest, TurnResponse } from '@saystreet/shared'
+import type { ConversationState, MandateView, Message, OptionCard, TurnResponse } from '@saystreet/shared'
 import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
@@ -14,7 +14,7 @@ import {
   useConversation,
   useMe,
 } from '../api/queries'
-import { type BuyChoice, MandateCard, OptionsCard, OrdersCard } from '../components/chat/cards'
+import { MandateCard, OptionsCard, OrdersCard } from '../components/chat/cards'
 import { BrailleCell } from '../components/braille'
 import { Composer } from '../components/chat/composer'
 import { Starters, STARTERS } from '../components/chat/starters'
@@ -44,6 +44,8 @@ type Work = 'idle' | 'transcribing' | 'thinking'
 type Turn = { work: Work; chat: string | undefined; text: string | null; token: number }
 const IDLE: Turn = { work: 'idle', chat: undefined, text: null, token: 0 }
 
+const toBottom = () => window.scrollTo({ top: document.documentElement.scrollHeight })
+
 export default function ChatPage() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -56,7 +58,8 @@ export default function ChatPage() {
   // a sighted or low-vision person without a screen reader.
   const [notice, setNotice] = useState<{ text: string; chat: string | undefined } | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
-  const endRef = useRef<HTMLDivElement>(null)
+  const columnRef = useRef<HTMLDivElement>(null)
+  const follow = useRef(true)
   const tokens = useRef(0)
   const spoken = me?.voice_mode === 'spoken'
 
@@ -111,6 +114,7 @@ export default function ChatPage() {
   const dockFrom = useRef<number | null>(null)
   const begin = useCallback((work: Work, text: string | null = null) => {
     const token = ++tokens.current
+    follow.current = true
     setTurn({ work, chat: here.current ?? undefined, text, token })
     // The moment a message goes out (typed, or a recording that has just stopped) the chat has begun:
     // the input drops down and the message shows, without waiting for the server.
@@ -175,7 +179,7 @@ export default function ChatPage() {
   }, [])
 
   const send = useCallback(
-    async (text: string, input: 'voice' | 'text', buy?: TurnRequest['buy']) => {
+    async (text: string, input: 'voice' | 'text') => {
       const origin = id
       stopVoice()
       play('sent')
@@ -184,7 +188,7 @@ export default function ChatPage() {
       // A screen reader hears it once, through the live region; the line in the chat is for the eyes.
       say(['Thinking…'], 'status')
       try {
-        handle(await sendTurn({ conversation_id: origin, text, input, ...(buy ? { buy } : {}) }), origin)
+        handle(await sendTurn({ conversation_id: origin, text, input }), origin)
         return true
       } catch (error) {
         fail(error, origin)
@@ -368,19 +372,13 @@ export default function ChatPage() {
     },
     [client, say, fail, id],
   )
-  // Buy on a card is the person asking, in the chat, to buy that product: their line says "Buy …", and the
-  // product itself (never found again by its title) and what they chose on the card go with it. The server
-  // asks for what is missing or prepares the payment, so every Buy, on any list, behaves the same way.
+  // Buy on a card says in the chat what the person would say: "Buy option 2". The agent answers it like anything
+  // spoken, so a size, the total and the payment all go through the same conversation, by voice or by typing.
   const onChoose = useCallback(
-    (choice: BuyChoice) => {
+    (option: OptionCard) => {
       if (phase !== 'idle') return
       focusTalk()
-      const choices = choice.selection.map((s) => s.value).join(', ')
-      void send(`Buy ${choice.title}${choices ? `, ${choices}` : ''}`.slice(0, 300), 'text', {
-        product_id: choice.product_id,
-        merchant_domain: choice.merchant_domain,
-        selection: choice.selection,
-      })
+      void send(`Buy option ${option.n}`, 'text')
     },
     [phase, focusTalk, send],
   )
@@ -421,12 +419,34 @@ export default function ChatPage() {
       root.style.removeProperty('--composer-h')
     }
   }, [])
+  // The chat follows its newest message while the person is at the bottom, and only then: scroll up to read and
+  // it stays put. What the person does themselves (a message sent, typed or spoken, a chat opened) takes them
+  // back to the bottom. Content that grows after it arrives (a photo, a card) is followed too.
   const lastId = messages.at(-1)?.id
+  useEffect(() => {
+    const onScroll = () => {
+      follow.current = document.documentElement.scrollHeight - window.scrollY - window.innerHeight < 160
+    }
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
+  useLayoutEffect(() => {
+    follow.current = true
+  }, [id])
   useLayoutEffect(() => {
     // An empty chat stays at the top, with its welcome in view.
-    if (!lastId && !pendingText) return
-    endRef.current?.scrollIntoView({ block: 'end' })
-  }, [id, lastId, pendingText])
+    if (!lastId && !pendingText && current.work === 'idle') return
+    if (follow.current) toBottom()
+  }, [id, lastId, pendingText, current.work])
+  useEffect(() => {
+    const column = columnRef.current
+    if (!column) return
+    const observer = new ResizeObserver(() => {
+      if (follow.current) toBottom()
+    })
+    observer.observe(column)
+    return () => observer.disconnect()
+  }, [])
 
   const empty = !started && !id && messages.length === 0 && !pendingText
 
@@ -445,7 +465,7 @@ export default function ChatPage() {
   }, [empty])
 
   return (
-    <div className="mx-auto flex min-h-[calc(100dvh-4.1rem)] max-w-3xl flex-col px-4 sm:px-8 lg:min-h-dvh">
+    <div ref={columnRef} className="mx-auto flex min-h-[calc(100dvh-4.1rem)] max-w-3xl flex-col px-4 sm:px-8 lg:min-h-dvh">
       {empty ? (
         // An empty chat leads with what to do, and the input is right under it.
         <div className="flex-[2] pt-10" />
@@ -518,7 +538,6 @@ export default function ChatPage() {
       ) : (
         !empty && <div className="flex-1" />
       )}
-      <div ref={endRef} style={{ scrollMarginBottom: 'calc(var(--composer-h, 10rem) + 1rem)' }} />
 
       <div
         ref={barRef}
@@ -571,7 +590,7 @@ type ItemProps = {
   onExpiring: () => void
   onExpired: (mandate: MandateView) => void
   onExtend: (mandate: MandateView) => void
-  onChoose: (choice: BuyChoice) => void
+  onChoose: (option: OptionCard) => void
   active: boolean // the newest list of options in the chat
   onMore: (() => void) | null // set on the latest options only
 }
@@ -609,7 +628,6 @@ function MessageItem({ message, conversationId, liveMandate, busy, onPay, onCanc
           busy={busy}
           onChoose={onChoose}
           active={active}
-          paying={liveMandate !== null}
           // The server offers "more" in the spoken list when the search has further options.
           onMore={onMore && message.text.includes('"more"') ? onMore : null}
         />
