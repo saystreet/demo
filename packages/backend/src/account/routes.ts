@@ -30,7 +30,7 @@ accountRoutes.get('/me', requireAccount, async (c) =>
 
 const PER_PURCHASE = { min: 1_000, max: 50_000 }
 const WEEKLY = { min: 1_000, max: 200_000 }
-const SPEECH_RATES = new Set([0.75, 1, 1.25])
+const SPEECH_RATES = new Set([0.75, 1, 1.25, 1.5, 2])
 
 // PATCH /api/me  Settings. See UpdateAccountRequest.
 accountRoutes.patch('/me', requireAccount, async (c) => {

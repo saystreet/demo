@@ -373,11 +373,42 @@ async function moreOptionsTool(state: ToolState): Promise<ToolResult> {
   return done({ options: next.options ? optionsForModel(next.options) : [] })
 }
 
+// "walmart.com/ip/Stainless-Steel-Whistling-Tea-Kettle/123456" -> "stainless steel whistling tea kettle".
+// Only the words of the address: ids, codes and path labels are dropped. Null when too little is left.
+export function wordsFromLink(rawUrl: string): string | null {
+  let url: URL
+  try {
+    url = new URL(rawUrl.trim())
+  } catch {
+    return null
+  }
+  const skip = new Set(['ip', 'dp', 'gp', 'p', 'pd', 'product', 'products', 'item', 'items', 'itm', 'html', 'htm', 'www', 'detail', 'details', 'buy', 'shop'])
+  let path = url.pathname
+  try {
+    path = decodeURIComponent(path)
+  } catch {
+    // a broken %-sequence: the raw words are still readable
+  }
+  const words = path
+    .toLowerCase()
+    .split(/[^a-z]+/)
+    .filter((w) => w.length > 2 && !skip.has(w))
+  const unique = [...new Set(words)].slice(0, 6)
+  return unique.length >= 2 ? unique.join(' ') : null
+}
+
 async function lookupLinkTool(args: Record<string, unknown>, state: ToolState): Promise<ToolResult> {
-  const result = await lookupLink(textArg(args.url) ?? '')
+  const link = textArg(args.url) ?? ''
+  const result = await lookupLink(link)
   if ('error' in result) {
-    say(state, result.error === 'LINK_NOT_PRODUCT' ? templates.linkNotProduct() : templates.linkFailed())
-    return done({ error: result.error })
+    // Not a dead end: the address usually says what the product is, so look for that.
+    const query = wordsFromLink(link)
+    if (!query || RESTRICTED_QUERY.test(query)) {
+      say(state, query ? templates.restricted() : result.error === 'LINK_NOT_PRODUCT' ? templates.linkNotProduct() : templates.linkUnclear())
+      return done({ error: result.error })
+    }
+    say(state, templates.linkSimilar(query))
+    return runSearch(state, { query, budgetCents: null, store: null, size: null }, await getLastSearch(state.conversationId))
   }
   await dropWaiting(state)
   const params = { query: result.option.title, budgetCents: null, store: null, size: null }
