@@ -21,6 +21,7 @@ CREATE TABLE "accounts" (
     "ship_postal" TEXT NOT NULL,
     "ship_country" TEXT NOT NULL DEFAULT 'US',
     "vault_id" TEXT,
+    "paypal_email" TEXT,
     "per_purchase_limit_cents" INTEGER NOT NULL DEFAULT 25000,
     "weekly_limit_cents" INTEGER NOT NULL DEFAULT 100000,
     "voice_mode" "voice_mode" NOT NULL,

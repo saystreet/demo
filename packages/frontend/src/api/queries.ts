@@ -1,6 +1,5 @@
 import type {
   AccountView,
-  AdvanceOrderResponse,
   ConversationState,
   ConversationSummary,
   CreateAccountRequest,
@@ -299,10 +298,7 @@ export function useAudit(enabled: boolean) {
   })
 }
 
-// Without a chat id the server picks the most recent chat that has options.
-export const raisePrice = (optionN: 1 | 2 | 3, deltaCents: number, conversationId?: string) =>
-  api<{ ok: true; title: string; conversation_id: string }>('/demo/price-override', {
-    body: { conversation_id: conversationId, option_n: optionN, delta_cents: deltaCents },
-  })
-export const clearPrices = () => api<{ ok: true }>('/demo/price-override', { body: { clear: true } })
-export const advanceOrder = () => api<AdvanceOrderResponse>('/demo/advance-order', { body: {} })
+
+// "Use your own PayPal sandbox account": PayPal's approval page, then back to Settings.
+export const connectPayPal = (next: 'start' | 'chat' | 'settings') => api<{ approve_url: string }>('/paypal/connect', { body: { next } })
+export const disconnectPayPal = () => api<AccountView>('/paypal/disconnect', { body: {} })

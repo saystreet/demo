@@ -32,6 +32,8 @@ export type OrderView = OrderSummary & {
   merchant_domain: string
   paypal_order_id: string | null
   capture_id: string | null
+  paypal_payer_email: string | null // the PayPal account that paid, as PayPal reported it
+  own_wallet: boolean // paid with the person's own sandbox account, not the shared demo buyer
   item_cents: number
   shipping_cents: number
   ship_to: ShippingAddress // copy at the time of purchase
@@ -43,6 +45,9 @@ export type OrderView = OrderSummary & {
   // Null for sample orders.
   confirmation: { method: 'voice' | 'button'; heard_cents: number | null; at: string } | null
   paypal_tracker_id: string | null // tracking sent to PayPal's tracking API
+  // Every call SayStreet made to PayPal for this order, and every webhook PayPal sent, oldest first.
+  // Empty for sample orders (no PayPal) and on the list.
+  paypal_trail?: PayPalStep[]
   refund_id: string | null
   refunded_at: string | null
 }
@@ -60,4 +65,18 @@ export type ReturnResponse = {
   order: OrderView
   result: 'done' | 'started' | 'already' | 'failed' // started: PayPal is still processing the refund
   say: string // "Refund of $34.99 done."
+}
+
+// One step on an order's "At PayPal" trail.
+export type PayPalStep = {
+  at: string // ISO
+  label: string // "Create order (Orders v2, vaulted wallet)", "Webhook PAYMENT.CAPTURE.COMPLETED (signature verified)"
+  method: string // POST, GET, WEBHOOK
+  endpoint: string // "/v2/checkout/orders/5O1…/capture" or the webhook event type
+  http_status: number // 0 when PayPal didn't answer
+  result: string | null // PayPal's status: COMPLETED, PENDING… or the error name
+  paypal_id: string | null
+  request_id: string | null // PayPal-Request-Id: retries with it never act twice
+  debug_id: string | null
+  ms: number
 }

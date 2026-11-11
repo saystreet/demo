@@ -2,6 +2,7 @@
 // ("pay thirty-nine ninety-nine") or press the Pay button that names it.
 
 import type { ShippingAddress } from './account'
+import type { PayPalStep } from './orders'
 
 export type MandateStatus = 'proposed' | 'paying' | 'paid' | 'pending' | 'rejected' | 'failed' | 'expired' | 'cancelled'
 
@@ -35,6 +36,15 @@ export type MandateView = {
   audit_line: string | null // engine log line for a refusal, e.g. "REJECTED mandate=3fa2c1 reason=PRICE_CHANGED …"
   order_id: string | null // after payment
   paypal_order_id: string | null // shown on the receipt
+  // On the receipt, what PayPal answered: the calls made for this payment, the capture and the
+  // PayPal account that paid. Missing on receipts saved before it existed.
+  paypal?: {
+    capture_id: string | null
+    capture_status: string | null // COMPLETED, PENDING…
+    payer_email: string | null
+    own_wallet: boolean // the person's own sandbox account: they can find the payment in PayPal
+    steps: PayPalStep[]
+  } | null
 }
 
 // POST /api/mandates/:id/pay

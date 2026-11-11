@@ -1,4 +1,5 @@
 import { env, requireEnv } from '../env'
+import { idsInRequest, idsInResponse, recordPayPalCall } from './log'
 
 // Low-level PayPal REST client: OAuth token, JSON requests, timeouts, errors.
 
@@ -74,19 +75,47 @@ export async function paypalRequest<T>(method: 'GET' | 'POST', path: string, opt
   }
   if (options.requestId) headers['PayPal-Request-Id'] = options.requestId
 
-  const res = await fetch(`${paypalBaseUrl()}${path}`, {
-    method,
-    headers,
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
-    signal: AbortSignal.timeout(TIMEOUT_MS),
-  })
+  const started = Date.now()
+  const endpoint = path.split('?')[0]!
+  let res: Response
+  try {
+    res = await fetch(`${paypalBaseUrl()}${path}`, {
+      method,
+      headers,
+      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    })
+  } catch (error) {
+    // No answer (a timeout, the network): on the trail too, so a retried call reads as such.
+    if (shouldLog(endpoint)) await recordPayPalCall({ method, endpoint, status: 0, result: 'NO_ANSWER', requestId: options.requestId, ms: Date.now() - started, refs: idsInRequest(endpoint, options.requestId) })
+    throw error
+  }
   const body = await readJson(res)
+  const debugId = res.headers.get('paypal-debug-id')
+  if (shouldLog(endpoint)) {
+    const b = body as { id?: string; status?: string; name?: string } | null
+    await recordPayPalCall({
+      method,
+      endpoint,
+      status: res.status,
+      result: res.ok ? (b?.status ?? null) : (b?.name ?? null),
+      paypalId: res.ok ? (b?.id ?? null) : null,
+      requestId: options.requestId,
+      debugId,
+      ms: Date.now() - started,
+      refs: [...idsInRequest(endpoint, options.requestId), ...(res.ok ? idsInResponse(body) : [])],
+    })
+  }
   if (!res.ok) {
     if (res.status === 401) cached = null
-    throw new PayPalError(res.status, body, res.headers.get('paypal-debug-id'))
+    throw new PayPalError(res.status, body, debugId)
   }
   return body as T
 }
+
+// Webhook signature checks are logged with the webhook itself (webhooks/paypal.ts): anyone can
+// trigger one, so they don't get rows of their own.
+const shouldLog = (endpoint: string) => endpoint !== '/v1/notifications/verify-webhook-signature'
 
 async function readJson(res: Response): Promise<unknown> {
   const text = await res.text()

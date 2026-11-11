@@ -3,6 +3,7 @@ import { useEffect } from 'react'
 import { Link, useNavigationType } from 'react-router'
 import { useOrders } from '../api/queries'
 import { Badge, ErrorLine, LoadingLine, PageTitle, usePageTitle } from '../components/page'
+import { PayPalLine, paypalWords } from '../components/paypal'
 import { ProductImage } from '../components/product-image'
 import { Spending } from '../components/spending'
 import { useAnnouncer } from '../lib/announcer'
@@ -145,7 +146,7 @@ function OrderList({ orders, remember }: { orders: OrderSummary[]; remember: (id
               {/* The name, for screen readers: the card's content in listening order. */}
               <span className="sr-only">
                 {order.title}, {status.words}. {total} from {store}, ordered {date}
-                {order.is_sample ? '. Sample order' : ''}.
+                {order.is_sample ? '. Sample order' : `. ${paypalWords(order)}, sandbox`}.
               </span>
               {order.image_url ? (
                 <ProductImage src={order.image_url} alt="" size={72} lazy={false} className="p-1" />
@@ -157,8 +158,9 @@ function OrderList({ orders, remember }: { orders: OrderSummary[]; remember: (id
                 <span className="block text-ink-muted">
                   {store}, ordered {date}
                 </span>
-                <span className="mt-2 flex flex-wrap items-center gap-2">
+                <span className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
                   <Badge tone={status.tone}>{status.words}</Badge>
+                  <PayPalLine order={order} />
                 </span>
               </span>
               <span aria-hidden="true" className="data col-start-2 text-lg sm:col-start-3 sm:text-right">

@@ -5,7 +5,7 @@ import { type AuthEnv, requireAccount } from '../auth'
 import { findConversation } from '../conversations/service'
 import { db } from '../db'
 import { Prisma } from '../generated/prisma/client'
-import { findOrder, toOrderView } from '../orders/service'
+import { findOrder, paypalTrail, toOrderView } from '../orders/service'
 import { advanceOrder, latestOpenOrder } from '../orders/shipping'
 import { templates } from '../templates'
 import { jsonBody } from '../http'
@@ -72,7 +72,7 @@ demoRoutes.post('/demo/advance-order', requireAccount, async (c) => {
   if (!order) return c.json<ApiError>({ error: 'nothing_to_ship', say: templates.nothingToShip() }, 404)
   const result = await advanceOrder(order)
   if (!result) return c.json<ApiError>({ error: 'nothing_to_ship', say: templates.nothingToShip() }, 409)
-  return c.json<AdvanceOrderResponse>({ order: toOrderView(result.order), step: result.step, say: result.say })
+  return c.json<AdvanceOrderResponse>({ order: toOrderView(result.order, await paypalTrail(result.order)), step: result.step, say: result.say })
 })
 
 // GET /api/audit  The engine's last 20 lines for this account, newest first.

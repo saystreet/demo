@@ -1,8 +1,10 @@
 import { formatUSD, type MandateView, type OptionCard, type OrderSummary } from '@saystreet/shared'
 import { useEffect, useState } from 'react'
+import { PaypalLogo } from '@phosphor-icons/react'
 import { Link } from 'react-router'
 import { cn } from '../../lib/cn'
 import { orderStatus, REJECT_WORDS, ratingWords } from '../../lib/words'
+import { PayPalLine, SandboxActivityLink, stepWords } from '../paypal'
 import { ProductImage } from '../product-image'
 import { Button } from '../ui/button'
 
@@ -112,7 +114,10 @@ export function MandateCard({ mandate, live, busy, onPay, onCancel, onExpiring, 
     return (
       // The receipt closes the same ledger "Ready to pay" opened, under a rule in the good colour.
       <div className="mt-4 rounded-(--radius-panel) border border-edge border-t-good bg-surface-1 p-5 [border-top-width:3px]">
-        <h2 className="text-xl font-bold">Paid in the PayPal sandbox</h2>
+        <h2 className="flex items-center gap-2 text-xl font-bold">
+          <PaypalLogo aria-hidden="true" size={24} weight="fill" className="shrink-0" />
+          Paid with PayPal (sandbox)
+        </h2>
         <p className="mt-2 text-lg">
           {mandate.title}
           <span className="block text-ink-muted">from {mandate.merchant}</span>
@@ -131,14 +136,19 @@ export function MandateCard({ mandate, live, busy, onPay, onCancel, onExpiring, 
             <dd className="font-bold">{total}</dd>
           </div>
         </dl>
-        {mandate.paypal_order_id && (
-          <p className="mt-3 text-sm text-ink-muted">
-            PayPal sandbox order <span className="data text-ink">{mandate.paypal_order_id}</span>
-          </p>
+        {mandate.paypal ? (
+          <ReceiptAtPayPal paypal={mandate.paypal} orderId={mandate.paypal_order_id} />
+        ) : (
+          mandate.paypal_order_id && (
+            <p className="mt-3 text-sm text-ink-muted">
+              PayPal sandbox order <span className="data text-ink">{mandate.paypal_order_id}</span>
+            </p>
+          )
         )}
         {mandate.order_id && (
+          // The order page lists every call made to PayPal for this payment ("At PayPal").
           <Link to={`/orders/${mandate.order_id}`} className="mt-3 inline-flex min-h-12 items-center font-semibold underline underline-offset-4 hover:text-accent">
-            Order details<span className="sr-only"> for {mandate.title}</span>
+            Order details and PayPal steps<span className="sr-only"> for {mandate.title}</span>
           </Link>
         )}
       </div>
@@ -224,7 +234,8 @@ export function MandateCard({ mandate, live, busy, onPay, onCancel, onExpiring, 
         <>
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
             <Button size="lg" aria-disabled={busy || undefined} onClick={() => !busy && onPay(mandate)}>
-              Pay {total} to {mandate.merchant}
+              <PaypalLogo aria-hidden="true" size={22} weight="fill" />
+              Pay {total} with PayPal<span className="sr-only"> to {mandate.merchant}</span>
             </Button>
             <Button size="lg" variant="secondary" aria-disabled={busy || undefined} onClick={() => !busy && onCancel(mandate)}>
               Cancel payment
@@ -239,6 +250,48 @@ export function MandateCard({ mandate, live, busy, onPay, onCancel, onExpiring, 
         </>
       )}
     </div>
+  )
+}
+
+// Under the receipt: who paid, and PayPal's own answers to the calls just made, with their ids.
+function ReceiptAtPayPal({ paypal, orderId }: { paypal: NonNullable<MandateView['paypal']>; orderId: string | null }) {
+  return (
+    <section aria-label="At PayPal" className="mt-4 border-t border-line pt-3">
+      {paypal.payer_email && (
+        <p>
+          <span className="block text-sm text-ink-muted">Paid from PayPal account</span>
+          <span className="font-semibold [overflow-wrap:anywhere]">{paypal.payer_email}</span>
+        </p>
+      )}
+      {paypal.steps.length > 0 && (
+        <ol className="mt-2 grid gap-1.5 text-sm">
+          {paypal.steps.map((step) => (
+            <li key={`${step.at}-${step.endpoint}`}>
+              <span className="font-semibold">{step.label}</span>
+              <span className="text-ink-muted">: {stepWords(step)}</span>
+            </li>
+          ))}
+        </ol>
+      )}
+      <dl className="mt-2 grid gap-0.5 text-sm">
+        {orderId && (
+          <div className="flex flex-wrap gap-x-2">
+            <dt className="text-ink-muted">PayPal order</dt>
+            <dd className="data [overflow-wrap:anywhere]">{orderId}</dd>
+          </div>
+        )}
+        {paypal.capture_id && (
+          <div className="flex flex-wrap gap-x-2">
+            <dt className="text-ink-muted">PayPal capture</dt>
+            <dd className="data [overflow-wrap:anywhere]">
+              {paypal.capture_id}
+              {paypal.capture_status && <span className="font-sans text-ink-muted">, {paypal.capture_status}</span>}
+            </dd>
+          </div>
+        )}
+      </dl>
+      {paypal.own_wallet && <SandboxActivityLink className="mt-1" />}
+    </section>
   )
 }
 
@@ -288,6 +341,7 @@ export function OrdersCard({ orders }: { orders: OrderSummary[] }) {
                 {status.words}
                 {order.is_sample && <span>, sample order</span>}
               </p>
+              <PayPalLine order={order} />
             </div>
             <Link to={`/orders/${order.order_id}`} className="inline-flex min-h-12 items-center font-semibold underline underline-offset-4 hover:text-accent">
               Order details<span className="sr-only"> for {order.title}</span>

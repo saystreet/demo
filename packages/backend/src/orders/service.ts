@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { type FulfillmentStatus, type OrderSummary, type OrderView, type PaymentStatus, RETURN_DAYS, type ShippingAddress } from '@saystreet/shared'
+import { type FulfillmentStatus, type OrderSummary, type OrderView, type PaymentStatus, type PayPalStep, RETURN_DAYS, type ShippingAddress } from '@saystreet/shared'
 import { db } from '../db'
 import { DELIVERY_DAYS } from '../env'
 import type { Mandate, Order, OrderEvent, Prisma } from '../generated/prisma/client'
@@ -59,7 +59,7 @@ export function weekday(date: Date): string {
 export async function createOrderFromPayment(
   mandate: Mandate,
   merchantDomain: string,
-  payment: { paypalOrderId: string; captureId: string | null; status: 'paid' | 'pending' },
+  payment: { paypalOrderId: string; captureId: string | null; status: 'paid' | 'pending'; payerEmail?: string | null; ownWallet?: boolean },
   client: Pick<ReturnType<typeof db>, 'order'> = db(),
 ): Promise<OrderWithEvents> {
   const now = new Date()
@@ -72,6 +72,8 @@ export async function createOrderFromPayment(
       conversationId: mandate.conversationId,
       paypalOrderId: payment.paypalOrderId,
       captureId: payment.captureId,
+      paypalPayerEmail: payment.payerEmail ?? null,
+      ownWallet: payment.ownWallet ?? false,
       paymentStatus: payment.status,
       fulfillmentStatus: 'processing',
       productId: mandate.productId,
@@ -173,7 +175,34 @@ export function toOrderSummary(order: Order & { events?: OrderEvent[] }): OrderS
   }
 }
 
-export function toOrderView(order: OrderWithEvents): OrderView {
+// The "At PayPal" trail for an order: the calls and webhooks tied to its mandate, PayPal order,
+// capture and refund (paypal/log.ts).
+export async function paypalTrail(order: Order): Promise<PayPalStep[]> {
+  if (order.isSample) return []
+  const refs = [order.mandateId, order.id, order.paypalOrderId, order.captureId, order.refundId].filter((r): r is string => !!r)
+  // The trail is extra: if it can't be read (a database without the table yet), the order and
+  // the payment answer still go out, without it.
+  const rows = await db()
+    .paypalCall.findMany({ where: { refs: { hasSome: refs } }, orderBy: { createdAt: 'asc' }, take: 30 })
+    .catch((error: unknown) => {
+      console.warn('PayPal trail unavailable', (error as Error).message)
+      return []
+    })
+  return rows.map((r) => ({
+    at: r.createdAt.toISOString(),
+    label: r.label,
+    method: r.method,
+    endpoint: r.endpoint,
+    http_status: r.status,
+    result: r.result,
+    paypal_id: r.paypalId,
+    request_id: r.requestId,
+    debug_id: r.debugId,
+    ms: r.ms,
+  }))
+}
+
+export function toOrderView(order: OrderWithEvents, trail: PayPalStep[] = []): OrderView {
   return {
     ...toOrderSummary(order),
     product_id: order.productId,
@@ -182,6 +211,8 @@ export function toOrderView(order: OrderWithEvents): OrderView {
     merchant_domain: order.merchantDomain,
     paypal_order_id: order.paypalOrderId,
     capture_id: order.captureId,
+    paypal_payer_email: order.paypalPayerEmail,
+    own_wallet: order.ownWallet,
     item_cents: order.itemCents,
     shipping_cents: order.shippingCents,
     ship_to: order.shipTo as ShippingAddress,
@@ -196,5 +227,6 @@ export function toOrderView(order: OrderWithEvents): OrderView {
     paypal_tracker_id: order.paypalTrackerId,
     refund_id: order.refundId,
     refunded_at: order.refundedAt ? order.refundedAt.toISOString() : null,
+    paypal_trail: trail,
   }
 }

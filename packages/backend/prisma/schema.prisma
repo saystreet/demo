@@ -27,6 +27,7 @@ model Account {
   shipPostal            String    @map("ship_postal")
   shipCountry           String    @default("US") @map("ship_country")
   vaultId               String?   @map("vault_id")
+  paypalEmail           String?   @map("paypal_email")
   perPurchaseLimitCents Int       @default(25000) @map("per_purchase_limit_cents")
   weeklyLimitCents      Int       @default(100000) @map("weekly_limit_cents")
   voiceMode             VoiceMode @map("voice_mode")
@@ -106,6 +107,10 @@ model Order {
   isSample          Boolean    @default(false) @map("is_sample")
   paypalOrderId     String?    @unique @map("paypal_order_id")
   captureId         String?    @unique @map("capture_id")
+  /// The PayPal account that paid, from PayPal's answer
+  paypalPayerEmail  String?    @map("paypal_payer_email")
+  /// Paid with the person's own PayPal sandbox account, not the shared demo buyer
+  ownWallet         Boolean    @default(false) @map("own_wallet")
   /// paid | pending | failed | refunded | refund_pending
   paymentStatus     String     @map("payment_status")
   /// processing | shipped | delivered | returned
@@ -260,4 +265,25 @@ model UsageCounter {
 
   @@id([key, windowStart])
   @@map("usage_counters")
+}
+
+/// Every call to PayPal and every verified webhook, for the "At PayPal" steps on an order: what was
+/// asked, what PayPal answered, how long it took. No request or response bodies (they hold
+/// addresses); `refs` holds the ids that tie a call to a mandate and an order.
+model PaypalCall {
+  id        String   @id @db.Uuid
+  label     String
+  method    String
+  endpoint  String
+  status    Int
+  result    String?
+  paypalId  String?  @map("paypal_id")
+  requestId String?  @map("request_id")
+  debugId   String?  @map("debug_id")
+  ms        Int
+  refs      String[]
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([refs], type: Gin)
+  @@map("paypal_calls")
 }

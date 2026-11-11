@@ -44,7 +44,7 @@ export function AccountReady({ onDone }: { onDone: () => void }) {
   const rows: [string, string][] = [
     ['Name', me.name],
     ['Ships to', [me.ship_to.line1, me.ship_to.city, me.ship_to.state].join(', ')],
-    ['Pays with', 'PayPal sandbox buyer'],
+    ['Pays with', me.wallet.own ? 'Your PayPal sandbox account' : 'PayPal sandbox demo buyer'],
     ['Limits', `${dollars(me.limits.per_purchase_cents)} a purchase, ${dollars(me.limits.weekly_cents)} a week`],
   ]
 

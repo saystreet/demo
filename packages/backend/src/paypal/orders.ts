@@ -30,6 +30,8 @@ type OrderResponse = {
   id: string
   status: string
   purchase_units?: { payments?: { captures?: Capture[] } }[]
+  payment_source?: { paypal?: { email_address?: string } }
+  payer?: { email_address?: string }
 }
 
 export type OrderResult = {
@@ -38,6 +40,8 @@ export type OrderResult = {
   // COMPLETED, PENDING, DECLINED... null if PayPal returned no capture yet.
   captureId: string | null
   captureStatus: string | null
+  // The PayPal account that paid, as PayPal reports it on the order.
+  payerEmail: string | null
 }
 
 const usd = (cents: number): Money => ({ currency_code: 'USD', value: toPayPalValue(cents) })
@@ -103,5 +107,6 @@ function toResult(order: OrderResponse): OrderResult {
     orderStatus: order.status,
     captureId: capture?.id ?? null,
     captureStatus: capture?.status ?? null,
+    payerEmail: order.payment_source?.paypal?.email_address ?? order.payer?.email_address ?? null,
   }
 }

@@ -4,6 +4,7 @@ import { db } from '../db'
 import type { Prisma } from '../generated/prisma/client'
 import { PayPalError, verifyWebhookSignature } from '../paypal'
 import { type PayPalEvent, processEvent } from './process'
+import { recordPayPalCall } from '../paypal/log'
 
 // POST /api/webhooks/paypal (spec 8.5). PayPal calls it when a payment changes later.
 // 1. Verify the signature with PayPal. 2. Store the event once by its id.
@@ -37,6 +38,19 @@ paypalWebhook.post('/', async (c) => {
     console.log(`PayPal webhook ${event.event_type} ${event.resource?.id ?? ''}: duplicate`)
     return c.json({ ok: true })
   }
+
+  // On the order's "At PayPal" trail: the event and the ids it's about (capture, order, refund).
+  const r = event.resource as { id?: string; status?: string; supplementary_data?: { related_ids?: { order_id?: string; capture_id?: string } }; links?: { rel: string; href: string }[] } | undefined
+  await recordPayPalCall({
+    label: `Webhook ${event.event_type} (signature verified)`,
+    method: 'WEBHOOK',
+    endpoint: event.event_type,
+    status: 200,
+    result: r?.status ?? null,
+    paypalId: event.id,
+    ms: 0,
+    refs: [r?.id, r?.supplementary_data?.related_ids?.order_id, r?.supplementary_data?.related_ids?.capture_id, r?.links?.find((l) => l.rel === 'up')?.href.match(/\/captures\/([^/?]+)/)?.[1]],
+  })
 
   try {
     const outcome = await processEvent(event)

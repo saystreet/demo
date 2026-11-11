@@ -8,6 +8,8 @@ import { bodyLimit } from 'hono/body-limit'
 import { compress } from 'hono/compress'
 import { secureHeaders } from 'hono/secure-headers'
 import { accountRoutes } from './account/routes'
+import { paypalConnectApi } from './account/paypal-connect'
+import { loadDemoBuyerEmail } from './account/service'
 import { adminVault } from './admin/vault'
 import { catalogRoutes } from './catalog/routes'
 import { conversationRoutes } from './conversations/routes'
@@ -49,6 +51,7 @@ const api = new Hono()
 const smallBody = bodyLimit({ maxSize: 64 * 1024, onError: (c) => c.json({ error: 'body_too_large' }, 413) })
 api.use('*', (c, next) => (c.req.path.endsWith('/transcribe') ? next() : smallBody(c, next)))
 api.route('/', accountRoutes)
+api.route('/', paypalConnectApi)
 api.route('/webhooks/paypal', paypalWebhook)
 api.route('/', catalogRoutes)
 api.route('/', conversationRoutes)
@@ -89,6 +92,7 @@ const server = serve({ fetch: app.fetch, port }, (info) => {
     .catch((error) => console.error('Releasing interrupted payments failed', error))
   // Usage counters and cache rows past their use, now and every six hours.
   schedulePruning()
+  void loadDemoBuyerEmail()
 })
 
 // A deploy sends SIGTERM: stop taking requests and let the ones in flight (a PayPal call can take

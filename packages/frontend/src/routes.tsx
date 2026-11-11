@@ -42,7 +42,13 @@ export const router = createBrowserRouter([
     ErrorBoundary: RouteError,
     children: [
       // No token: the start screen. A token: straight to the chat.
-      { path: '/', loader: () => (getToken() ? redirect('/chat') : null), lazy: page(() => import('./pages/start')) },
+      // Signed in: straight to the chat. Except right after connecting PayPal from this page
+      // (?paypal=…): the person still chooses a voice here to begin.
+      {
+        path: '/',
+        loader: ({ request }) => (getToken() && !new URL(request.url).searchParams.has('paypal') ? redirect('/chat') : null),
+        lazy: page(() => import('./pages/start')),
+      },
       { path: '/start', loader: () => redirect('/') },
       {
         loader: () => (getToken() ? null : redirect('/')),

@@ -1,16 +1,23 @@
 import type { VoiceMode } from '@saystreet/shared'
-import { ArrowRight, Headphones, SpeakerHigh } from '@phosphor-icons/react'
-import { useEffect, useRef } from 'react'
+import { ArrowRight, CheckCircle, Headphones, PaypalLogo, SpeakerHigh } from '@phosphor-icons/react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
-import { useCreateAccount } from '../api/queries'
+import { connectPayPal, disconnectPayPal, keys, useCreateAccount, useMe, useUpdateAccount } from '../api/queries'
+import { Button } from '../components/ui/button'
+import { getToken } from '../lib/session'
+import { useQueryClient } from '@tanstack/react-query'
 import { BrailleCell } from '../components/braille'
 import { usePageTitle } from '../components/page'
+import { tookWords } from '../components/paypal'
 import { ApiError } from '../lib/api'
 import { useAnnouncer } from '../lib/announcer'
 import { cn } from '../lib/cn'
 
-// The demo starts here (spec 16.3): no email, no password, one question. The browser can't tell
-// whether VoiceOver is on, so the person says how replies should be read.
+// The demo starts here (spec 16.3): no email, no password. Paying is already set up (the sandbox
+// demo buyer, nothing to log in to); "Connect your PayPal sandbox account" is the optional step:
+// it makes the demo account, sends the person to PayPal's approval page, and brings them back here
+// with a check mark. The voice question starts the demo. The browser can't tell whether VoiceOver
+// is on, so the person says how replies should be read.
 
 const CHOICES: { mode: VoiceMode; label: string; description: string; Icon: typeof Headphones }[] = [
   {
@@ -30,7 +37,14 @@ const CHOICES: { mode: VoiceMode; label: string; description: string; Icon: type
 export default function StartPage() {
   usePageTitle('Try the demo')
   const navigate = useNavigate()
+  const client = useQueryClient()
   const create = useCreateAccount()
+  const update = useUpdateAccount()
+  // An account exists already when the person connected PayPal from here and came back.
+  const me = useMe()
+  const own = !!me.data?.wallet.own
+  const [paypalBusy, setPaypalBusy] = useState(false)
+  const [paypalNote, setPaypalNote] = useState<string | null>(null)
   const heading = useRef<HTMLHeadingElement>(null)
   const { say } = useAnnouncer()
 
@@ -40,10 +54,63 @@ export default function StartPage() {
 
   const errorText = (error: unknown) => (error instanceof ApiError && error.say ? error.say : 'Something went wrong. Try again.')
 
+  // Back from PayPal (?paypal=connected | cancelled | failed): said once, then off the address.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const outcome = params.get('paypal')
+    if (!outcome) return
+    const text =
+      outcome === 'connected'
+        ? `Your PayPal sandbox account is connected.${tookWords(params)} Now choose how SayStreet talks to you.`
+        : outcome === 'cancelled'
+          ? 'Cancelled on PayPal. The sandbox demo buyer will pay.'
+          : "PayPal didn't connect. The sandbox demo buyer will pay. You can try again in Settings."
+    if (outcome !== 'connected') setPaypalNote(text)
+    say([text])
+    void client.invalidateQueries({ queryKey: keys.me })
+    window.history.replaceState(window.history.state, '', '/')
+  }, [client, say])
+
+  // Optional: make the account now (the voice choice below updates it), then approve on PayPal.
+  const connect = async () => {
+    if (paypalBusy || create.isPending) return
+    setPaypalBusy(true)
+    setPaypalNote(null)
+    say(['Opening PayPal…'])
+    try {
+      if (!getToken()) await create.mutateAsync({ voice_mode: 'screen_reader' })
+      const { approve_url } = await connectPayPal('start')
+      window.location.assign(approve_url)
+    } catch (error) {
+      const text = errorText(error)
+      setPaypalNote(text)
+      say([text])
+      setPaypalBusy(false)
+    }
+  }
+
+  const useDemoBuyer = async () => {
+    if (paypalBusy) return
+    setPaypalBusy(true)
+    try {
+      client.setQueryData(keys.me, await disconnectPayPal())
+      say(['The sandbox demo buyer will pay.'])
+    } catch (error) {
+      say([errorText(error)])
+    } finally {
+      setPaypalBusy(false)
+    }
+  }
+
   // The button's own text changes too, but a screen reader only hears it through the live region.
   const choose = (mode: VoiceMode) => {
-    if (create.isPending) return
+    if (create.isPending || update.isPending) return
     say(['Setting up your demo…'])
+    // Already made while connecting PayPal: only the voice is saved.
+    if (getToken() && me.data) {
+      update.mutate({ voice_mode: mode }, { onSuccess: () => navigate('/chat', { replace: true }), onError: (error) => say([errorText(error)]) })
+      return
+    }
     create.mutate(
       { voice_mode: mode },
       {
@@ -87,19 +154,53 @@ export default function StartPage() {
         </p>
       </div>
 
-      <section aria-labelledby="voice-title" className="mt-10 sm:mt-14">
+      <section aria-labelledby="payer-title" className="mt-10 sm:mt-14 rounded-(--radius-panel) border border-edge bg-surface-1 px-5 py-5 sm:px-7">
+        <h2 id="payer-title" className="flex items-center gap-2 text-xl font-bold">
+          <PaypalLogo aria-hidden="true" size={24} weight="fill" className="shrink-0" />
+          Paying with PayPal
+        </h2>
+        {own ? (
+          <>
+            <p className="mt-2 flex items-center gap-2 text-lg font-semibold text-good">
+              <CheckCircle aria-hidden="true" size={22} weight="fill" className="shrink-0" />
+              Your PayPal sandbox account is connected.
+            </p>
+            {me.data?.wallet.email && <p className="mt-1 text-lg font-semibold [overflow-wrap:anywhere]">{me.data.wallet.email}</p>}
+            {me.data && (
+              <p className="mt-1 text-ink-muted">
+                Ships to {me.data.ship_to.name}, {me.data.ship_to.line1}, {me.data.ship_to.city}.
+              </p>
+            )}
+            <Button variant="quiet" className="mt-1" aria-disabled={paypalBusy || undefined} onClick={useDemoBuyer}>
+              Use the demo buyer instead
+            </Button>
+          </>
+        ) : (
+          <>
+            <p className="mt-2 text-ink-muted">A PayPal sandbox test buyer is already connected, so there's nothing to log in to. Or use your own sandbox account:</p>
+            <Button variant="secondary" className="mt-3" aria-disabled={paypalBusy || undefined} onClick={connect}>
+              <PaypalLogo aria-hidden="true" size={20} weight="fill" />
+              {paypalBusy ? 'Opening PayPal…' : 'Connect your PayPal sandbox account'}
+            </Button>
+            <p className="mt-2 text-sm text-ink-muted">Opens PayPal in this tab, then brings you back here.</p>
+            {paypalNote && <p className="mt-3 font-semibold text-bad">{paypalNote}</p>}
+          </>
+        )}
+      </section>
+
+      <section aria-labelledby="voice-title" className="mt-10 sm:mt-12">
         <h2 id="voice-title" className="text-2xl font-bold">
           How should SayStreet talk to you?
         </h2>
         <div className="mt-5 grid gap-3">
           {CHOICES.map(({ mode, label, description, Icon }) => {
-            const pending = create.isPending && create.variables?.voice_mode === mode
+            const pending = !paypalBusy && ((create.isPending && create.variables?.voice_mode === mode) || (update.isPending && update.variables?.voice_mode === mode))
             return (
               <button
                 key={mode}
                 type="button"
                 onClick={() => choose(mode)}
-                aria-disabled={create.isPending || undefined}
+                aria-disabled={create.isPending || update.isPending || paypalBusy || undefined}
                 aria-describedby={`${mode}-description`}
                 className={cn(
                   'group flex min-h-24 w-full items-center gap-4 rounded-(--radius-panel) border border-edge bg-surface-1 px-5 py-5 text-left transition-colors duration-150',

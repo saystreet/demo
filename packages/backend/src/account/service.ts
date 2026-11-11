@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type { AccountView, ShippingAddress, VoiceMode } from '@saystreet/shared'
 import { type Account, db } from '../db'
 import { env } from '../env'
+import { getPaymentToken } from '../paypal'
 import { sampleOrderEvents, sampleOrders } from '../orders/samples'
 
 // What a new demo account starts with (spec section 4.1), plus four sample orders.
@@ -63,6 +64,27 @@ export function shipToOf(account: Account): ShippingAddress {
   }
 }
 
+// The shared demo buyer's PayPal email, read once from PayPal at startup (loadDemoBuyerEmail), so
+// Settings can say which sandbox account pays. Null until then, or if PayPal didn't answer.
+let demoBuyer: { vaultId: string; email: string | null } | null = null
+
+export async function loadDemoBuyerEmail(): Promise<void> {
+  const vaultId = env('DEMO_VAULT_ID')
+  if (!vaultId) return
+  try {
+    const token = await getPaymentToken(vaultId)
+    demoBuyer = { vaultId, email: token.email }
+  } catch (error) {
+    console.warn('Could not read the demo buyer from PayPal', (error as Error).message)
+  }
+}
+
+function walletEmail(account: Account, wallet: Wallet | null): string | null {
+  if (!wallet) return null
+  if (!wallet.shared) return account.paypalEmail
+  return demoBuyer?.vaultId === wallet.vaultId ? demoBuyer.email : null
+}
+
 // spentThisWeekCents comes from orders/service spentThisWeek().
 export function toAccountView(account: Account, spentThisWeekCents: number): AccountView {
   const wallet = walletFor(account)
@@ -81,6 +103,8 @@ export function toAccountView(account: Account, spentThisWeekCents: number): Acc
     wallet: {
       connected: wallet !== null,
       label: wallet && !wallet.shared ? 'Your PayPal sandbox account' : 'Sandbox demo buyer',
+      own: !!wallet && !wallet.shared,
+      email: walletEmail(account, wallet),
     },
     created_at: account.createdAt.toISOString(),
   }

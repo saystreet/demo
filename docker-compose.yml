@@ -1,4 +1,6 @@
-# Local Postgres for development: docker compose up -d
+# Development: only Postgres, for `pnpm dev` (pnpm db:up, or docker compose up -d --wait)
+# The whole app, built from this repository: docker compose --profile app up --build
+#   then open http://localhost:8080. Keys come from .env (see .env.example).
 services:
   postgres:
     image: postgres:18-alpine
@@ -15,6 +17,30 @@ services:
       interval: 2s
       timeout: 3s
       retries: 15
+
+  app:
+    profiles: ["app"]
+    build: .
+    # Optional so `pnpm db:up` works before .env exists; the app itself needs the keys in it.
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Inside Compose the database is the postgres service, not localhost.
+      DATABASE_URL: postgres://saystreet:saystreet@postgres:5432/saystreet
+      APP_URL: ${APP_URL:-http://localhost:8080}
+      PORT: "8080"
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
 
 volumes:
   postgres:

@@ -21,7 +21,9 @@ export type AccountView = {
   speech_rate: 0.75 | 1 | 1.25
   sounds_on: boolean
   limits: { per_purchase_cents: number; weekly_cents: number; spent_this_week_cents: number }
-  wallet: { connected: boolean; label: string }
+  // own: the person connected their own PayPal sandbox account (Settings); otherwise the shared buyer.
+  // email: the PayPal sandbox account that pays (null when PayPal didn't say).
+  wallet: { connected: boolean; label: string; own: boolean; email: string | null }
   created_at: string
 }
 

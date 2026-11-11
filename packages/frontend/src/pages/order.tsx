@@ -1,10 +1,11 @@
-import { formatUSD, type OrderView, speakAmount } from '@saystreet/shared'
-import { ArrowCounterClockwise, ChatCircleText, Copy, ShoppingCart } from '@phosphor-icons/react'
+import { formatUSD, type OrderView, type PayPalStep, speakAmount } from '@saystreet/shared'
+import { ArrowCounterClockwise, ChatCircleText, Copy, PaypalLogo, ShoppingCart } from '@phosphor-icons/react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { applyTurn, buyProduct, startOrderChat, useOrder, useReturnOrder } from '../api/queries'
 import { ErrorLine, LoadingLine, PageTitle, Section, usePageTitle } from '../components/page'
+import { SandboxActivityLink } from '../components/paypal'
 import { ProductImage } from '../components/product-image'
 import { Button } from '../components/ui/button'
 import { ApiError } from '../lib/api'
@@ -123,6 +124,12 @@ function Order({ o, full }: { o: OrderView; full: boolean }) {
             <Receipt o={o} />
           </Section>
 
+          {!!o.paypal_trail?.length && (
+            <Section title="At PayPal">
+              <PayPalTrail steps={o.paypal_trail} />
+            </Section>
+          )}
+
           <Section title="Shipping to">
             <address className="not-italic">
               {o.ship_to.name}
@@ -165,6 +172,52 @@ function TrackingNumber({ value }: { value: string }) {
         </Button>
       </dd>
     </div>
+  )
+}
+
+// What happened at PayPal for this order, call by call: the proof that a real PayPal sandbox
+// payment, tracking and refund took place, with the ids to find each one in PayPal.
+function PayPalTrail({ steps }: { steps: PayPalStep[] }) {
+  const seconds = (ms: number) => (ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${ms} ms`)
+  return (
+    <>
+      <p className="flex items-center gap-2 text-ink-muted">
+        <PaypalLogo aria-hidden="true" size={22} weight="fill" className="shrink-0 text-ink" />
+        Every call SayStreet made to the PayPal sandbox for this order, and what PayPal answered.
+      </p>
+      <ol className="mt-4 grid gap-3">
+        {steps.map((step, i) => {
+          const ok = step.method === 'WEBHOOK' || (step.http_status >= 200 && step.http_status < 300)
+          return (
+            <li key={`${step.at}-${i}`} className="rounded-(--radius-control) border border-edge/60 bg-surface-1 px-4 py-3">
+              <p className="font-semibold">
+                {step.label}
+                <span className="sr-only">{ok ? ', succeeded' : ', failed'}</span>
+              </p>
+              <p className="data mt-1 text-sm [overflow-wrap:anywhere]">
+                {step.method === 'WEBHOOK' ? 'Webhook from PayPal' : `${step.method} ${step.endpoint}`}
+                {step.method !== 'WEBHOOK' && ` · HTTP ${step.http_status || 'no answer'}`}
+                {step.result && ` · ${step.result}`}
+                {step.method !== 'WEBHOOK' && ` · ${seconds(step.ms)}`}
+              </p>
+              <p className="mt-1 text-sm text-ink-muted">
+                {dateTime(step.at)}
+                {step.paypal_id && (
+                  <>
+                    {' · '}PayPal id <span className="data text-ink [overflow-wrap:anywhere]">{step.paypal_id}</span>
+                  </>
+                )}
+                {step.request_id && (
+                  <>
+                    {' · '}PayPal-Request-Id <span className="data text-ink [overflow-wrap:anywhere]">{step.request_id}</span>
+                  </>
+                )}
+              </p>
+            </li>
+          )
+        })}
+      </ol>
+    </>
   )
 }
 
@@ -217,12 +270,14 @@ function Receipt({ o }: { o: OrderView }) {
 
       {(o.paypal_order_id || o.capture_id || o.paypal_tracker_id || o.refund_id) && (
         <dl className="mt-4 grid gap-1 text-sm">
+          {o.paypal_payer_email && <Proof label="Paid from PayPal account" value={o.paypal_payer_email} />}
           {o.paypal_order_id && <Proof label="PayPal order" value={o.paypal_order_id} />}
           {o.capture_id && <Proof label="PayPal capture" value={o.capture_id} />}
           {o.paypal_tracker_id && <Proof label="Tracking sent to PayPal" value={o.paypal_tracker_id} />}
           {o.refund_id && <Proof label="PayPal refund" value={o.refund_id} />}
         </dl>
       )}
+      {o.own_wallet && <SandboxActivityLink className="mt-2" />}
     </div>
   )
 }

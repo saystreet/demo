@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { type MandateView, type RejectReason, type ShippingAddress, type Sound, speakAmount } from '@saystreet/shared'
+import { type MandateView, type PayPalStep, type RejectReason, type ShippingAddress, type Sound, speakAmount } from '@saystreet/shared'
 import { shipToOf, walletFor } from '../account/service'
 import { audit, fields, shortId } from '../audit'
 import { CatalogUnavailable, getProductLive, resolveStore, storeDisplayName } from '../catalog/service'
@@ -8,7 +8,7 @@ import type { NewMessage } from '../conversations/service'
 import { type Account, db } from '../db'
 import { shippingCents } from '../env'
 import type { Mandate, Prisma } from '../generated/prisma/client'
-import { createOrderFromPayment, type OrderWithEvents, spentThisWeek, weekday } from '../orders/service'
+import { createOrderFromPayment, type OrderWithEvents, paypalTrail, spentThisWeek, weekday } from '../orders/service'
 import { createVaultedOrder, type OrderResult, PayPalError } from '../paypal'
 import { templates } from '../templates'
 
@@ -295,7 +295,12 @@ async function finish(
     const updated = await tx.mandate.update({ where: { id: mandate.id }, data: { status, decidedAt: new Date() } })
     const order =
       result && status !== 'failed'
-        ? await createOrderFromPayment(updated, mandate.offerDomain, { paypalOrderId: result.orderId, captureId: result.captureId, status }, tx)
+        ? await createOrderFromPayment(
+            updated,
+            mandate.offerDomain,
+            { paypalOrderId: result.orderId, captureId: result.captureId, status, payerEmail: result.payerEmail, ownWallet: walletFor(account)?.shared === false },
+            tx,
+          )
         : null
     return { updated, order }
   })
@@ -313,7 +318,8 @@ async function finish(
       : `${status.toUpperCase()} ${fields({ mandate: shortId(mandate.id), total: mandate.totalCents, paypal_order: result?.orderId, capture: result?.captureId, capture_status: result?.captureStatus })}`
   await audit(account.id, `mandate.${status}`, line, { mandateId: mandate.id })
 
-  const view = toMandateView(updated, { order })
+  // The receipt shows PayPal's own answers: the calls just made, the capture, who paid.
+  const view = toMandateView(updated, { order, trail: order ? await paypalTrail(order) : [], captureStatus: result?.captureStatus ?? null })
   const text = phrase ?? templates.paid(mandate.totalCents, weekday(order?.estimatedDelivery ?? new Date()))
   return {
     mandate: updated,
@@ -503,8 +509,9 @@ export function mandatePhrase(mandate: Mandate): string {
 
 export function toMandateView(
   mandate: Mandate,
-  extra: { order?: OrderWithEvents | null; auditLine?: string | null } = {},
+  extra: { order?: OrderWithEvents | null; auditLine?: string | null; trail?: PayPalStep[]; captureStatus?: string | null } = {},
 ): MandateView {
+  const order = extra.order
   return {
     id: mandate.id,
     conversation_id: mandate.conversationId,
@@ -522,6 +529,16 @@ export function toMandateView(
     live_total_cents: mandate.liveItemCents !== null && mandate.liveItemCents !== mandate.itemCents ? mandate.liveItemCents + mandate.shippingCents : null,
     audit_line: extra.auditLine ?? null,
     order_id: extra.order?.id ?? null,
-    paypal_order_id: extra.order?.paypalOrderId ?? null,
+    paypal_order_id: order?.paypalOrderId ?? null,
+    paypal:
+      order && !order.isSample
+        ? {
+            capture_id: order.captureId,
+            capture_status: extra.captureStatus ?? null,
+            payer_email: order.paypalPayerEmail,
+            own_wallet: order.ownWallet,
+            steps: extra.trail ?? [],
+          }
+        : null,
   }
 }

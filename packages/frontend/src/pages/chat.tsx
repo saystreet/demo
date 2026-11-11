@@ -20,6 +20,7 @@ import { AccountReady } from '../components/chat/account-ready'
 import { MandateCard, OptionsCard, OrdersCard } from '../components/chat/cards'
 import { Composer } from '../components/chat/composer'
 import { ErrorLine, LoadingLine, PageTitle, usePageTitle } from '../components/page'
+import { tookWords } from '../components/paypal'
 import { ConfirmDialog } from '../components/ui/alert-dialog'
 import { Button } from '../components/ui/button'
 import { ApiError } from '../lib/api'
@@ -88,6 +89,25 @@ export default function ChatPage() {
   useEffect(() => {
     if (!id && spoken) say([WELCOME])
   }, [id, spoken, say])
+
+  // Back from PayPal after choosing "my own PayPal sandbox account" on the start page: said once,
+  // then taken off the address. A failure keeps the demo buyer, so the demo still works.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const outcome = params.get('paypal')
+    if (!outcome) return
+    const text =
+      outcome === 'connected'
+        ? `Your PayPal sandbox account is connected. Purchases pay with it.${tookWords(params)}`
+        : outcome === 'cancelled'
+          ? 'Cancelled on PayPal. Purchases pay with the sandbox demo buyer.'
+          : "PayPal didn't connect, so purchases pay with the sandbox demo buyer. You can try again in Settings."
+    say([text])
+    if (outcome !== 'connected') setNotice({ text, chat: id })
+    void client.invalidateQueries({ queryKey: keys.me })
+    window.history.replaceState(window.history.state, '', window.location.pathname)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on arrival
+  }, [])
 
   const current = turn.chat === id ? turn : IDLE
   const shownNotice = notice && notice.chat === id ? notice.text : null

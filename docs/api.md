@@ -101,7 +101,7 @@ the one the buttons act on; older mandate cards are history.
 | `/orders` | `GET /api/orders` |
 | `/orders/:id` | `GET /api/orders/:id`; Return → `POST /api/orders/:id/return`; Buy again → `POST /api/products/buy`; Ask about this order → `POST /api/conversations { order_id }` |
 | `/settings` | `GET /api/me`, `PATCH /api/me`, `POST /api/me/reset` |
-| Demo section (in `/settings`) | `POST /api/demo/price-override`, `POST /api/demo/advance-order`, `GET /api/audit`, `POST /api/me/reset` |
+| Demo section (in `/settings`) | `GET /api/audit`, `POST /api/me/reset`. PayPal section: `POST /api/paypal/connect { next }` (then go to `approve_url`), `POST /api/paypal/disconnect`. `price-override` and `advance-order` are API-only (smoke test). |
 
 ## Endpoints
 
@@ -125,7 +125,7 @@ the one the buttons act on; older mandate cards are history.
 | `POST /api/mandates/:id/cancel` | | `TurnResponse` | |
 | `POST /api/mandates/:id/extend` | | `MandateView` | 404, 409 `not_waiting` |
 | `GET /api/orders` | | `{ orders: OrderSummary[] }` | Newest first, samples included. |
-| `GET /api/orders/:id` | | `OrderView` | `events` oldest first; `ship_to` is the address at purchase time; `confirmation` is how the payment was approved (amount said or Pay button); `returnable` / `return_by`: delivered, paid, within 30 days. |
+| `GET /api/orders/:id` | | `OrderView` | `paypal_trail`: every call made to PayPal for the order and every verified webhook, oldest first (empty for samples). `events` oldest first; `ship_to` is the address at purchase time; `confirmation` is how the payment was approved (amount said or Pay button); `returnable` / `return_by`: delivered, paid, within 30 days. |
 | `POST /api/orders/:id/return` | | `ReturnResponse` | Speak `say`. Real orders refund through PayPal. 409 `not_returnable` with `say` when not delivered yet, past the 30-day window, or the payment isn't settled (the voice agent uses the same rule). 502 `refund_failed` with `say` when PayPal refuses. By voice, "return it" is asked to confirm first and the next "return it" / "yes" does it. |
 | `POST /api/demo/price-override` | `{ conversation_id?, option_n, delta_cents }` or `{ clear: true }` | `{ ok, title, conversation_id }` | "Raise price of option 1 by $7": `option_n: 1, delta_cents: 700`. Without `conversation_id`: the latest chat with options (409 `no_options` with `say` if none). Only the payment check sees it. |
 | `POST /api/demo/advance-order` | `{ order_id? }` | `AdvanceOrderResponse` | "Ship latest order", then "Mark delivered". Speak `say`. 404/409 `nothing_to_ship` with `say` when there's nothing to move. |

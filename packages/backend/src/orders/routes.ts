@@ -1,7 +1,7 @@
 import type { ApiError, OrderSummary, OrderView, ReturnResponse } from '@saystreet/shared'
 import { Hono } from 'hono'
 import { type AuthEnv, requireAccount } from '../auth'
-import { canReturn, findOrder, listOrders, toOrderView } from './service'
+import { canReturn, findOrder, listOrders, paypalTrail, toOrderView } from './service'
 import { refundOrder, returnRefusal } from './tracking'
 
 export const orderRoutes = new Hono<AuthEnv>()
@@ -15,7 +15,7 @@ orderRoutes.get('/orders', requireAccount, async (c) => {
 orderRoutes.get('/orders/:id', requireAccount, async (c) => {
   const order = await findOrder(c.var.account.id, c.req.param('id'))
   if (!order) return c.json<ApiError>({ error: 'not_found' }, 404)
-  return c.json<OrderView>(toOrderView(order))
+  return c.json<OrderView>(toOrderView(order, await paypalTrail(order)))
 })
 
 // POST /api/orders/:id/return  "Return this item" on the order page, after its own confirm step.
@@ -29,5 +29,5 @@ orderRoutes.post('/orders/:id/return', requireAccount, async (c) => {
   if (check !== 'ok' && check !== 'already') return c.json<ApiError>({ error: 'not_returnable', say: returnRefusal(order, check) }, 409)
   const result = await refundOrder(order)
   if (result.status === 'failed') return c.json<ApiError>({ error: 'refund_failed', say: result.phrase }, 502)
-  return c.json<ReturnResponse>({ order: toOrderView(result.order), result: result.status, say: result.phrase })
+  return c.json<ReturnResponse>({ order: toOrderView(result.order, await paypalTrail(result.order)), result: result.status, say: result.phrase })
 })

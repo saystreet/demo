@@ -1,6 +1,6 @@
 import type { Message, OptionCard, Sound, TurnResponse } from '@saystreet/shared'
 import type { Decision } from '../mandate/engine'
-import { toOrderView } from '../orders/service'
+import { paypalTrail, toOrderView } from '../orders/service'
 import { addMessages, type NewMessage, toSummary, touchConversation } from './service'
 
 // Saves the new messages to the chat and builds the response every chat action returns.
@@ -21,7 +21,7 @@ export async function respond(
     messages: [...(input.already ?? []), ...saved],
     options: input.options ?? null,
     mandate: input.decision?.view ?? null,
-    order: input.decision?.order ? toOrderView(input.decision.order) : null,
+    order: input.decision?.order ? toOrderView(input.decision.order, await paypalTrail(input.decision.order)) : null,
     sound: input.sound,
   }
 }

@@ -1,0 +1,12 @@
+# Built inside the image, or never part of it (secrets, editor and agent files).
+**/node_modules
+**/dist
+**/src/generated
+.env
+.env.*
+!.env.example
+.git
+.idea
+.claude
+.agents
+*.log
