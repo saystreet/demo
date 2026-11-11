@@ -9,4 +9,3 @@ dist
 packages/backend/src/generated
 .claude
 .agents
-skills-lock.json
