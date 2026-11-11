@@ -11,7 +11,10 @@ import { createContext, type ReactNode, useCallback, useContext, useEffect, useM
 // While the person is recording, nothing is said; phrases wait until recording ends.
 
 type Announcer = {
-  say: (phrases: string[]) => void
+  // A reply (the default) is for the conversation, money and errors: said in both modes. A status
+  // (progress, "Saved.", "Copied") only goes to a screen reader's live region: with "read aloud" the
+  // screen already shows it, and saying it as well is noise.
+  say: (phrases: string[], kind?: 'reply' | 'status') => void
   stop: () => void
   hold: (on: boolean) => void
   speaking: boolean
@@ -76,9 +79,10 @@ export function AnnouncerProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const say = useCallback(
-    (phrases: string[]) => {
+    (phrases: string[], kind: 'reply' | 'status' = 'reply') => {
       const clean = phrases.map((p) => p.trim()).filter(Boolean)
       if (!clean.length) return
+      if (kind === 'status' && mode.current === 'spoken') return
       if (mode.current === 'spoken') queue.current.push(...clean)
       else queue.current.push(clean.join(' '))
       pump()

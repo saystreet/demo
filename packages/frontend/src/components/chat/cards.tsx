@@ -2,6 +2,8 @@ import { formatUSD, type MandateView, type OptionCard, type OrderSummary } from 
 import { useEffect, useState } from 'react'
 import { PaypalLogo } from '@phosphor-icons/react'
 import { Link } from 'react-router'
+import { useBackState } from '../../lib/back'
+import { Disclosure } from '../ui/disclosure'
 import { cn } from '../../lib/cn'
 import { orderStatus, REJECT_WORDS, ratingWords } from '../../lib/words'
 import { PayPalLine, SandboxActivityLink, stepWords } from '../paypal'
@@ -105,6 +107,7 @@ type MandateProps = {
 // The payment ledger. "Ready to pay" with two equal buttons while it waits; then a receipt,
 // a refusal with the engine's log line, or a short closed note.
 export function MandateCard({ mandate, live, busy, onPay, onCancel, onExpiring, onExpired, onExtend }: MandateProps) {
+  const back = useBackState()
   const total = formatUSD(mandate.total_cents)
   // Set by the countdown at zero; "More time" brings a new expires_at, which starts a fresh countdown.
   const [expiredAt, setExpiredAt] = useState<string | null>(null)
@@ -147,7 +150,7 @@ export function MandateCard({ mandate, live, busy, onPay, onCancel, onExpiring, 
         )}
         {mandate.order_id && (
           // The order page lists every call made to PayPal for this payment ("At PayPal").
-          <Link to={`/orders/${mandate.order_id}`} className="mt-3 inline-flex min-h-12 items-center font-semibold underline underline-offset-4 hover:text-accent">
+          <Link to={`/orders/${mandate.order_id}`} state={back} className="mt-3 inline-flex min-h-12 items-center font-semibold underline underline-offset-4 hover:text-accent">
             Order details and PayPal steps<span className="sr-only"> for {mandate.title}</span>
           </Link>
         )}
@@ -263,6 +266,7 @@ function ReceiptAtPayPal({ paypal, orderId }: { paypal: NonNullable<MandateView[
           <span className="font-semibold [overflow-wrap:anywhere]">{paypal.payer_email}</span>
         </p>
       )}
+      <Disclosure summary="PayPal details">
       {paypal.steps.length > 0 && (
         <ol className="mt-2 grid gap-1.5 text-sm">
           {paypal.steps.map((step) => (
@@ -290,6 +294,7 @@ function ReceiptAtPayPal({ paypal, orderId }: { paypal: NonNullable<MandateView[
           </div>
         )}
       </dl>
+      </Disclosure>
       {paypal.own_wallet && <SandboxActivityLink className="mt-1" />}
     </section>
   )
@@ -329,6 +334,7 @@ function Countdown({ expiresAt, onExpiring, onExpired }: { expiresAt: string; on
 }
 
 export function OrdersCard({ orders }: { orders: OrderSummary[] }) {
+  const back = useBackState()
   return (
     <ul className="mt-4 divide-y divide-line border-y border-line">
       {orders.map((order) => {
@@ -343,7 +349,7 @@ export function OrdersCard({ orders }: { orders: OrderSummary[] }) {
               </p>
               <PayPalLine order={order} />
             </div>
-            <Link to={`/orders/${order.order_id}`} className="inline-flex min-h-12 items-center font-semibold underline underline-offset-4 hover:text-accent">
+            <Link to={`/orders/${order.order_id}`} state={back} className="inline-flex min-h-12 items-center font-semibold underline underline-offset-4 hover:text-accent">
               Order details<span className="sr-only"> for {order.title}</span>
             </Link>
           </li>

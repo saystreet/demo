@@ -18,7 +18,7 @@ export type AccountView = {
   name: string
   ship_to: ShippingAddress
   voice_mode: VoiceMode
-  speech_rate: 0.75 | 1 | 1.25
+  speech_rate: 0.75 | 1 | 1.25 | 1.5 | 2
   sounds_on: boolean
   limits: { per_purchase_cents: number; weekly_cents: number; spent_this_week_cents: number }
   // own: the person connected their own PayPal sandbox account (Settings); otherwise the shared buyer.
@@ -43,7 +43,7 @@ export type UpdateAccountRequest = {
   name?: string
   ship_to?: Omit<ShippingAddress, 'country'> & { country?: 'US' }
   voice_mode?: VoiceMode
-  speech_rate?: 0.75 | 1 | 1.25
+  speech_rate?: 0.75 | 1 | 1.25 | 1.5 | 2
   sounds_on?: boolean
   limits?: { per_purchase_cents?: number; weekly_cents?: number } // $10–$500 and $10–$2,000
 }

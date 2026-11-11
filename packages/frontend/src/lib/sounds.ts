@@ -4,7 +4,7 @@ import type { Sound } from '@saystreet/shared'
 // without words. Web Audio only starts after a user gesture (Safari), so `unlockAudio` runs on
 // the first tap.
 
-export type Earcon = Sound | 'record_start' | 'record_stop' | 'tick'
+export type Earcon = Sound | 'record_start' | 'record_stop' | 'tick' | 'select' | 'on' | 'off' | 'open' | 'close' | 'done'
 
 type Note = { f: number; at: number; dur: number; type?: OscillatorType; gain?: number }
 
@@ -12,6 +12,13 @@ const EARCONS: Record<Earcon, Note[]> = {
   record_start: [{ f: 660, at: 0, dur: 0.08 }, { f: 990, at: 0.07, dur: 0.1 }],
   record_stop: [{ f: 990, at: 0, dur: 0.08 }, { f: 660, at: 0.07, dur: 0.1 }],
   sent: [{ f: 880, at: 0, dur: 0.06, gain: 0.12 }],
+  // Micro-sounds for small actions: a choice, a switch, a dialog, something saved or copied.
+  select: [{ f: 620, at: 0, dur: 0.045, type: 'triangle', gain: 0.07 }],
+  on: [{ f: 540, at: 0, dur: 0.05, type: 'triangle', gain: 0.08 }, { f: 810, at: 0.05, dur: 0.07, type: 'triangle', gain: 0.08 }],
+  off: [{ f: 810, at: 0, dur: 0.05, type: 'triangle', gain: 0.07 }, { f: 540, at: 0.05, dur: 0.07, type: 'triangle', gain: 0.07 }],
+  open: [{ f: 440, at: 0, dur: 0.05, type: 'sine', gain: 0.07 }, { f: 587, at: 0.05, dur: 0.08, type: 'sine', gain: 0.07 }],
+  close: [{ f: 587, at: 0, dur: 0.05, type: 'sine', gain: 0.06 }, { f: 440, at: 0.05, dur: 0.08, type: 'sine', gain: 0.06 }],
+  done: [{ f: 784, at: 0, dur: 0.06, type: 'triangle', gain: 0.09 }, { f: 1175, at: 0.06, dur: 0.1, type: 'triangle', gain: 0.09 }],
   tick: [{ f: 520, at: 0, dur: 0.035, gain: 0.06 }],
   reply: [{ f: 740, at: 0, dur: 0.09, type: 'triangle' }],
   options: [{ f: 587, at: 0, dur: 0.07, type: 'triangle' }, { f: 740, at: 0.08, dur: 0.07, type: 'triangle' }, { f: 880, at: 0.16, dur: 0.09, type: 'triangle' }],
@@ -24,6 +31,10 @@ const EARCONS: Record<Earcon, Note[]> = {
 
 let context: AudioContext | null = null
 let enabled = true
+
+export function soundsEnabled() {
+  return enabled
+}
 
 export function setSoundsEnabled(on: boolean) {
   enabled = on
@@ -38,8 +49,8 @@ export function unlockAudio() {
   if (context.state === 'suspended') void context.resume()
 }
 
-export function play(earcon: Earcon | null | undefined) {
-  if (!earcon || !enabled || !context || context.state !== 'running') return
+export function play(earcon: Earcon | null | undefined, force = false) {
+  if (!earcon || (!enabled && !force) || !context || context.state !== 'running') return
   const now = context.currentTime
   for (const note of EARCONS[earcon]) {
     const osc = context.createOscillator()

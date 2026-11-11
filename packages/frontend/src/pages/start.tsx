@@ -1,239 +1,147 @@
 import type { VoiceMode } from '@saystreet/shared'
-import { ArrowRight, CheckCircle, Headphones, PaypalLogo, SpeakerHigh } from '@phosphor-icons/react'
-import { useEffect, useRef, useState } from 'react'
+import { Headphones, Microphone, Package, Plus, Sliders, SpeakerHigh } from '@phosphor-icons/react'
+import { Dialog } from 'radix-ui'
+import { useEffect } from 'react'
 import { useNavigate } from 'react-router'
-import { connectPayPal, disconnectPayPal, keys, useCreateAccount, useMe, useUpdateAccount } from '../api/queries'
-import { Button } from '../components/ui/button'
-import { getToken } from '../lib/session'
-import { useQueryClient } from '@tanstack/react-query'
+import { useCreateAccount } from '../api/queries'
 import { BrailleCell } from '../components/braille'
 import { usePageTitle } from '../components/page'
-import { tookWords } from '../components/paypal'
 import { ApiError } from '../lib/api'
 import { useAnnouncer } from '../lib/announcer'
 import { cn } from '../lib/cn'
+import { getToken } from '../lib/session'
+import { play, unlockAudio } from '../lib/sounds'
 
-// The demo starts here (spec 16.3): no email, no password. Paying is already set up (the sandbox
-// demo buyer, nothing to log in to); "Connect your PayPal sandbox account" is the optional step:
-// it makes the demo account, sends the person to PayPal's approval page, and brings them back here
-// with a check mark. The voice question starts the demo. The browser can't tell whether VoiceOver
-// is on, so the person says how replies should be read.
+// "Try the demo" lands here with no account. The page behind is a picture of the empty chat, switched
+// off (inert, hidden from screen readers), so the person sees where they are going. On top is one
+// dialog that can't be closed or skipped: how should replies be read? Choosing it makes the account
+// (a name, an address, a sandbox buyer and sample orders, no email or password) and opens the real chat,
+// which looks the same, where "How it works" follows. Signed in, the router never shows this page.
 
 const CHOICES: { mode: VoiceMode; label: string; description: string; Icon: typeof Headphones }[] = [
-  {
-    mode: 'screen_reader',
-    label: 'Start with my screen reader',
-    description: 'SayStreet won’t talk over it.',
-    Icon: Headphones,
-  },
-  {
-    mode: 'spoken',
-    label: 'Start with replies read aloud',
-    description: 'No screen reader? Pick this.',
-    Icon: SpeakerHigh,
-  },
+  { mode: 'screen_reader', label: 'I use a screen reader', description: 'It reads the replies. SayStreet stays quiet.', Icon: Headphones },
+  { mode: 'spoken', label: 'Read replies aloud', description: 'SayStreet speaks every reply.', Icon: SpeakerHigh },
 ]
 
 export default function StartPage() {
-  usePageTitle('Try the demo')
+  usePageTitle('Start the demo')
   const navigate = useNavigate()
-  const client = useQueryClient()
   const create = useCreateAccount()
-  const update = useUpdateAccount()
-  // An account exists already when the person connected PayPal from here and came back.
-  const me = useMe()
-  const own = !!me.data?.wallet.own
-  const [paypalBusy, setPaypalBusy] = useState(false)
-  const [paypalNote, setPaypalNote] = useState<string | null>(null)
-  const heading = useRef<HTMLHeadingElement>(null)
   const { say } = useAnnouncer()
 
+  // Already has an account (a bookmark, or back from PayPal): straight to the chat.
   useEffect(() => {
-    heading.current?.focus()
-  }, [])
+    if (getToken()) navigate(`/chat${window.location.search}`, { replace: true })
+  }, [navigate])
 
-  const errorText = (error: unknown) => (error instanceof ApiError && error.say ? error.say : 'Something went wrong. Try again.')
-
-  // Back from PayPal (?paypal=connected | cancelled | failed): said once, then off the address.
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const outcome = params.get('paypal')
-    if (!outcome) return
-    const text =
-      outcome === 'connected'
-        ? `Your PayPal sandbox account is connected.${tookWords(params)} Now choose how SayStreet talks to you.`
-        : outcome === 'cancelled'
-          ? 'Cancelled on PayPal. The sandbox demo buyer will pay.'
-          : "PayPal didn't connect. The sandbox demo buyer will pay. You can try again in Settings."
-    if (outcome !== 'connected') setPaypalNote(text)
-    say([text])
-    void client.invalidateQueries({ queryKey: keys.me })
-    window.history.replaceState(window.history.state, '', '/')
-  }, [client, say])
-
-  // Optional: make the account now (the voice choice below updates it), then approve on PayPal.
-  const connect = async () => {
-    if (paypalBusy || create.isPending) return
-    setPaypalBusy(true)
-    setPaypalNote(null)
-    say(['Opening PayPal…'])
-    try {
-      if (!getToken()) await create.mutateAsync({ voice_mode: 'screen_reader' })
-      const { approve_url } = await connectPayPal('start')
-      window.location.assign(approve_url)
-    } catch (error) {
-      const text = errorText(error)
-      setPaypalNote(text)
-      say([text])
-      setPaypalBusy(false)
-    }
-  }
-
-  const useDemoBuyer = async () => {
-    if (paypalBusy) return
-    setPaypalBusy(true)
-    try {
-      client.setQueryData(keys.me, await disconnectPayPal())
-      say(['The sandbox demo buyer will pay.'])
-    } catch (error) {
-      say([errorText(error)])
-    } finally {
-      setPaypalBusy(false)
-    }
-  }
-
-  // The button's own text changes too, but a screen reader only hears it through the live region.
   const choose = (mode: VoiceMode) => {
-    if (create.isPending || update.isPending) return
-    say(['Setting up your demo…'])
-    // Already made while connecting PayPal: only the voice is saved.
-    if (getToken() && me.data) {
-      update.mutate({ voice_mode: mode }, { onSuccess: () => navigate('/chat', { replace: true }), onError: (error) => say([errorText(error)]) })
-      return
-    }
+    if (create.isPending) return
+    unlockAudio()
+    play('select')
+    say(['Setting up your demo…'], 'status')
     create.mutate(
       { voice_mode: mode },
       {
         onSuccess: () => navigate('/chat', { replace: true }),
-        onError: (error) => say([errorText(error)]),
+        onError: (error) => say([error instanceof ApiError && error.say ? error.say : 'Something went wrong. Try again.']),
       },
     )
   }
 
-  const error = create.error ? errorText(create.error) : null
+  const problem = create.isError ? (create.error instanceof ApiError && create.error.say ? create.error.say : 'Something went wrong. Try again.') : null
+  const choosing = create.variables?.voice_mode
 
   return (
-    <main id="main" className="mx-auto flex min-h-dvh max-w-2xl flex-col px-4 py-6 sm:px-8 sm:py-14">
-      {/* The brand and where the project comes from; the page below is only about the product. */}
-      <div className="flex flex-wrap items-center justify-between gap-x-4">
-        <a href="https://saystreet.app" className="flex min-h-12 items-center">
-          <img src="/brand/lockup-for-dark-bg.svg" alt="SayStreet: about the product on saystreet.app" width="180" height="36" className="h-8 w-auto sm:h-9" />
-        </a>
-        <a
-          href="https://paypalaihackathon.devpost.com/"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex min-h-12 items-center text-sm text-ink-muted underline decoration-edge sm:text-base underline-offset-4 hover:text-ink hover:decoration-ink"
-        >
-          <span className="sr-only">Built for the </span>PayPal AI Hackathon<span className="sr-only"> (opens in a new tab)</span>
-        </a>
-      </div>
-
-      {/* One promise, one line on who it's for and what you get, one question. More about SayStreet
-          lives on saystreet.app, one tap away on the logo. */}
-      <div className="mt-10 sm:mt-16">
-        <h1 ref={heading} tabIndex={-1} className="title text-5xl text-balance sm:text-6xl">
-          <span className="block">Shop by voice.</span>
-          <span className="block">
-            Pay only what you <span className="text-accent">said</span>.
-          </span>
-        </h1>
-        <p className="mt-5 text-lg text-ink-muted sm:text-xl">
-          For blind and low-vision people. One&nbsp;tap sets up your own demo: shop real products with a sandbox PayPal
-          wallet.
-        </p>
-      </div>
-
-      <section aria-labelledby="payer-title" className="mt-10 sm:mt-14 rounded-(--radius-panel) border border-edge bg-surface-1 px-5 py-5 sm:px-7">
-        <h2 id="payer-title" className="flex items-center gap-2 text-xl font-bold">
-          <PaypalLogo aria-hidden="true" size={24} weight="fill" className="shrink-0" />
-          Paying with PayPal
-        </h2>
-        {own ? (
-          <>
-            <p className="mt-2 flex items-center gap-2 text-lg font-semibold text-good">
-              <CheckCircle aria-hidden="true" size={22} weight="fill" className="shrink-0" />
-              Your PayPal sandbox account is connected.
+    <>
+      <Backdrop />
+      <Dialog.Root open>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-40 bg-ground/80" />
+          <Dialog.Content
+            // No way out: not Escape, not a click outside. Choosing is the only way on.
+            onEscapeKeyDown={(event) => event.preventDefault()}
+            onPointerDownOutside={(event) => event.preventDefault()}
+            onInteractOutside={(event) => event.preventDefault()}
+            className="fixed top-1/2 left-1/2 z-50 flex max-h-[calc(100dvh-2rem)] w-[min(30rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-y-auto rounded-(--radius-panel) border border-edge bg-surface-1 p-6"
+          >
+            <Dialog.Title asChild>
+              <h1 className="title text-4xl sm:text-5xl">SayStreet demo</h1>
+            </Dialog.Title>
+            <Dialog.Description className="mt-2 text-lg text-ink-muted">Shop by voice. Pay only what you said.</Dialog.Description>
+            <h2 className="mt-6 text-xl font-bold">How should SayStreet talk to you?</h2>
+            <div className="mt-3 grid gap-3">
+              {CHOICES.map(({ mode, label, description, Icon }) => {
+                const pending = create.isPending && choosing === mode
+                return (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => choose(mode)}
+                    aria-disabled={create.isPending || undefined}
+                    aria-busy={pending || undefined}
+                    aria-describedby={`start-${mode}`}
+                    className={cn(
+                      'flex min-h-20 w-full items-center gap-4 rounded-(--radius-control) border border-edge px-4 py-3 text-left transition-colors duration-150 hover:border-ink hover:bg-surface-2 aria-disabled:cursor-wait',
+                      pending && 'border-accent',
+                    )}
+                  >
+                    <span aria-hidden="true" className="grid size-11 shrink-0 place-items-center rounded-full bg-surface-3 text-accent">
+                      {pending ? <BrailleCell mode="think" className="h-6" /> : <Icon size={24} weight="bold" />}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-lg font-bold">{label}</span>
+                      <span id={`start-${mode}`} className="block text-ink-muted">
+                        {description}
+                      </span>
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+            {/* The same height with or without a problem: nothing moves. */}
+            <p className="mt-3 min-h-6 font-semibold text-bad">
+              {problem}
             </p>
-            {me.data?.wallet.email && <p className="mt-1 text-lg font-semibold [overflow-wrap:anywhere]">{me.data.wallet.email}</p>}
-            {me.data && (
-              <p className="mt-1 text-ink-muted">
-                Ships to {me.data.ship_to.name}, {me.data.ship_to.line1}, {me.data.ship_to.city}.
-              </p>
-            )}
-            <Button variant="quiet" className="mt-1" aria-disabled={paypalBusy || undefined} onClick={useDemoBuyer}>
-              Use the demo buyer instead
-            </Button>
-          </>
-        ) : (
-          <>
-            <p className="mt-2 text-ink-muted">A PayPal sandbox test buyer is already connected, so there's nothing to log in to. Or use your own sandbox account:</p>
-            <Button variant="secondary" className="mt-3" aria-disabled={paypalBusy || undefined} onClick={connect}>
-              <PaypalLogo aria-hidden="true" size={20} weight="fill" />
-              {paypalBusy ? 'Opening PayPal…' : 'Connect your PayPal sandbox account'}
-            </Button>
-            <p className="mt-2 text-sm text-ink-muted">Opens PayPal in this tab, then brings you back here.</p>
-            {paypalNote && <p className="mt-3 font-semibold text-bad">{paypalNote}</p>}
-          </>
-        )}
-      </section>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+    </>
+  )
+}
 
-      <section aria-labelledby="voice-title" className="mt-10 sm:mt-12">
-        <h2 id="voice-title" className="text-2xl font-bold">
-          How should SayStreet talk to you?
-        </h2>
-        <div className="mt-5 grid gap-3">
-          {CHOICES.map(({ mode, label, description, Icon }) => {
-            const pending = !paypalBusy && ((create.isPending && create.variables?.voice_mode === mode) || (update.isPending && update.variables?.voice_mode === mode))
-            return (
-              <button
-                key={mode}
-                type="button"
-                onClick={() => choose(mode)}
-                aria-disabled={create.isPending || update.isPending || paypalBusy || undefined}
-                aria-describedby={`${mode}-description`}
-                className={cn(
-                  'group flex min-h-24 w-full items-center gap-4 rounded-(--radius-panel) border border-edge bg-surface-1 px-5 py-5 text-left transition-colors duration-150',
-                  'hover:border-ink hover:bg-surface-2 aria-disabled:cursor-wait sm:px-7',
-                )}
-              >
-                <span aria-hidden="true" className="grid size-12 shrink-0 place-items-center rounded-full bg-surface-3 text-accent sm:size-14">
-                  {pending ? <BrailleCell mode="think" className="h-7" /> : <Icon size={28} weight="bold" />}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-xl font-bold text-balance">{pending ? 'Setting up your demo…' : label}</span>
-                  <span id={`${mode}-description`} className="mt-1 block text-pretty text-ink-muted">
-                    {description}
-                  </span>
-                </span>
-                {/* Says "this goes somewhere": the choice starts the demo, there is no Continue. */}
-                <ArrowRight
-                  aria-hidden="true"
-                  size={24}
-                  weight="bold"
-                  className="hidden shrink-0 text-ink-muted transition-transform duration-200 ease-out group-hover:translate-x-1 group-hover:text-ink group-focus-visible:translate-x-1 group-focus-visible:text-ink sm:block"
-                />
-              </button>
-            )
-          })}
+// A picture of the empty chat. Nothing in it works and nothing in it is read out.
+function Backdrop() {
+  return (
+    <div aria-hidden="true" inert className="min-h-dvh lg:grid lg:grid-cols-[17.5rem_1fr]">
+      <aside className="hidden h-dvh flex-col gap-6 border-r border-line bg-surface-1 p-4 lg:flex">
+        <img src="/brand/lockup-for-dark-bg.svg" alt="" width="160" height="32" className="h-8 w-auto self-start" />
+        <div className="flex min-h-12 items-center gap-2 rounded-full border border-edge px-6 font-bold">
+          <Plus size={20} weight="bold" />
+          New chat
         </div>
-        {error && (
-          <p aria-hidden="true" className="mt-4 font-semibold text-bad">
-            {error}
-          </p>
-        )}
-        <p className="mt-4 text-ink-muted">Talk or type. You can switch this in Settings.</p>
-      </section>
-    </main>
+        <div className="mt-auto grid gap-1 border-t border-line pt-4 font-semibold">
+          <span className="flex min-h-12 items-center gap-3 px-3">
+            <Package size={22} />
+            Orders
+          </span>
+          <span className="flex min-h-12 items-center gap-3 px-3">
+            <Sliders size={22} />
+            Settings
+          </span>
+        </div>
+      </aside>
+      <div className="flex min-h-dvh flex-col justify-center px-4 sm:px-8">
+        <div className="mx-auto w-full max-w-3xl">
+          <p className="pb-6 text-center text-3xl leading-tight font-bold text-balance sm:text-4xl">What are you shopping for today?</p>
+          <div className="flex items-center gap-1.5 rounded-full border border-edge bg-surface-1 p-1.5">
+            <span className="inline-flex h-12 w-28 shrink-0 items-center justify-center gap-2 rounded-full bg-accent text-lg font-bold text-accent-ink sm:h-14">
+              <Microphone size={24} weight="fill" />
+              Talk
+            </span>
+            <span className="px-2 text-ink-muted">Or type here</span>
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }

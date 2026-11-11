@@ -53,14 +53,6 @@ export function useCreateAccount() {
   })
 }
 
-export function useResetAccount() {
-  const client = useQueryClient()
-  return useMutation({
-    mutationFn: () => api<SessionResponse>('/me/reset', { method: 'POST' }),
-    onSuccess: (session) => startSession(client, session),
-  })
-}
-
 function startSession(client: QueryClient, session: SessionResponse) {
   setToken(session.token)
   client.clear()

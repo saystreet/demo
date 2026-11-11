@@ -1,51 +1,59 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
 import { useNavigate } from 'react-router'
-import { useAudit, useResetAccount } from '../api/queries'
-import { ApiError } from '../lib/api'
-import { useAnnouncer } from '../lib/announcer'
+import { useAudit } from '../api/queries'
 import { clearToken } from '../lib/session'
 import { auditWords, dateTime } from '../lib/words'
+import { Disclosure } from './ui/disclosure'
 import { Section } from './page'
 import { ConfirmDialog } from './ui/alert-dialog'
 import { Button } from './ui/button'
 
 // The Demo section of Settings (spec 15.9): the payment engine's log, and the two actions that
-// end this demo account (Start over, Sign out), which look dangerous because they are.
+// end this demo account (Start over), which looks dangerous because it is.
 // (The price-change and ship/deliver tools are API-only now: POST /api/demo/price-override and
 // /api/demo/advance-order, used by the smoke test.)
 
 export function DemoSection() {
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const client = useQueryClient()
   const navigate = useNavigate()
-  const { say } = useAnnouncer()
   const audit = useAudit(true)
-  const reset = useResetAccount()
 
-  // Reset only once at a time (a second account would replace the first), and say it if it fails.
+  // Start over is the first visit again: forget this account, and the start dialog asks how replies are
+  // read, makes a new account (fresh sample orders) and opens the chat and "How it works" as new.
+  // The old account is left on the server, as it always was.
   const startOver = () => {
-    if (busy) return
-    setBusy(true)
-    reset.mutate(undefined, {
-      onSuccess: () => navigate('/chat', { replace: true }),
-      onError: (err) => {
-        const text = err instanceof ApiError && err.say ? err.say : "Couldn't reset the demo account. Try again."
-        setError(text)
-        say([text])
-      },
-      onSettled: () => setBusy(false),
-    })
+    clearToken()
+    client.clear()
+    navigate('/', { replace: true })
   }
 
   return (
-    <Section title="Demo">
-      <section aria-labelledby="audit-title">
+    <>
+      <Section title="Account">
+      <div>
+        <p className="text-ink-muted">Start over gives you a fresh account with new sample orders.</p>
+        <div className="mt-3 flex flex-wrap gap-3">
+          <ConfirmDialog
+            title="Start over with a new demo account?"
+            description="You'll switch to a new demo account with fresh sample orders. Chats and orders from this account won't carry over."
+            confirm="Start over"
+            danger
+            onConfirm={startOver}
+            trigger={
+              <Button variant="danger">
+                Start over
+              </Button>
+            }
+          />
+        </div>
+      </div>
+      </Section>
+      <Disclosure summary="Developer tools" className="border-t border-line pt-3">
+      <section aria-labelledby="audit-title" className="pt-1">
         <h3 id="audit-title" className="text-lg font-bold">
           Payment log
         </h3>
-        <p className="mt-1 text-sm text-ink-muted">Every payment decision with its reason, newest first.</p>
+        <p className="mt-1 text-sm text-ink-muted">Every payment decision and why, newest first.</p>
         {audit.data?.length ? (
           <ul className="mt-3 grid grid-cols-[minmax(0,1fr)] gap-3">
             {audit.data.map((entry) => (
@@ -66,39 +74,7 @@ export function DemoSection() {
         )}
       </section>
 
-      <section aria-labelledby="account-title" className="mt-10">
-        <h3 id="account-title" className="text-lg font-bold">
-          This demo account
-        </h3>
-        <p className="mt-1 text-ink-muted">Both end this account. Start over gives you a new one right away, with fresh sample orders.</p>
-        <div className="mt-4 flex flex-wrap gap-3">
-          <ConfirmDialog
-            title="Start over with a new demo account?"
-            description="You'll switch to a new demo account with fresh sample orders. Chats and orders from this account won't carry over."
-            confirm="Start over"
-            danger
-            onConfirm={startOver}
-            trigger={
-              <Button variant="danger" aria-disabled={busy || undefined}>
-                {busy ? 'Starting over…' : 'Start over'}
-              </Button>
-            }
-          />
-          <ConfirmDialog
-            title="Sign out?"
-            description="Signing out ends this demo account. You can start a new one with one tap."
-            confirm="Sign out"
-            danger
-            onConfirm={() => {
-              clearToken()
-              client.clear()
-              navigate('/', { replace: true })
-            }}
-            trigger={<Button variant="danger">Sign out</Button>}
-          />
-        </div>
-        {error && <p className="mt-4 font-semibold text-bad">{error}</p>}
-      </section>
-    </Section>
+      </Disclosure>
+    </>
   )
 }
