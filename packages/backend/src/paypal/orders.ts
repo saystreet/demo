@@ -1,4 +1,4 @@
-import { paypalRequest, toPayPalValue } from './client'
+import { PayPalError, paypalRequest, toPayPalValue } from './client'
 
 // Orders v2: one order per confirmed mandate, paid with the vaulted wallet.
 
@@ -22,6 +22,10 @@ export type VaultedOrderInput = {
   vaultId: string
   // null sends the order without a shipping address (fallback if the sandbox refuses it).
   shipTo: ShipTo | null
+  // What PayPal shows with the item on its own pages: the product photo (see item-image.ts) and the
+  // product's page at the store. Null leaves them out.
+  imageUrl?: string | null
+  itemUrl?: string | null
 }
 
 type Money = { currency_code: string; value: string }
@@ -47,6 +51,29 @@ export type OrderResult = {
 const usd = (cents: number): Money => ({ currency_code: 'USD', value: toPayPalValue(cents) })
 
 export async function createVaultedOrder(input: VaultedOrderInput): Promise<OrderResult> {
+  const extras = !!(input.imageUrl || input.itemUrl)
+  let order: OrderResponse
+  try {
+    order = await createOrder(input, input.requestId, extras)
+  } catch (error) {
+    // The photo and the store link are extras: if PayPal refuses the item over them (a 4xx naming
+    // the item), the order goes again without them. Nothing was created on the refused request, and
+    // the new one has its own PayPal-Request-Id, still fixed per mandate, so a retry can't pay twice.
+    if (!extras || !refusedItem(error)) throw error
+    console.warn('PayPal refused the item photo or link, ordering without them', (error as PayPalError).debugId)
+    order = await createOrder(input, `${input.requestId}:plain`, false)
+  }
+
+  // With a vault id the order usually comes back already captured.
+  if (order.status === 'COMPLETED') return toResult(order)
+  return captureOrder(order.id, `${input.requestId}:capture`)
+}
+
+function refusedItem(error: unknown): boolean {
+  return error instanceof PayPalError && (error.status === 400 || error.status === 422) && JSON.stringify(error.body ?? '').includes('/items/')
+}
+
+async function createOrder(input: VaultedOrderInput, requestId: string, extras: boolean): Promise<OrderResponse> {
   const title = input.title.slice(0, 127)
   const shipping = input.shipTo && {
     type: 'SHIPPING',
@@ -61,8 +88,8 @@ export async function createVaultedOrder(input: VaultedOrderInput): Promise<Orde
     },
   }
 
-  const order = await paypalRequest<OrderResponse>('POST', '/v2/checkout/orders', {
-    requestId: input.requestId,
+  return paypalRequest<OrderResponse>('POST', '/v2/checkout/orders', {
+    requestId,
     body: {
       intent: 'CAPTURE',
       purchase_units: [
@@ -74,7 +101,16 @@ export async function createVaultedOrder(input: VaultedOrderInput): Promise<Orde
             ...usd(input.itemCents + input.shippingCents),
             breakdown: { item_total: usd(input.itemCents), shipping: usd(input.shippingCents) },
           },
-          items: [{ name: title, quantity: '1', unit_amount: usd(input.itemCents), category: 'PHYSICAL_GOODS' }],
+          items: [
+            {
+              name: title,
+              quantity: '1',
+              unit_amount: usd(input.itemCents),
+              category: 'PHYSICAL_GOODS',
+              ...(extras && input.imageUrl ? { image_url: input.imageUrl } : {}),
+              ...(extras && input.itemUrl ? { url: input.itemUrl } : {}),
+            },
+          ],
           ...(shipping ? { shipping } : {}),
         },
       ],
@@ -86,10 +122,6 @@ export async function createVaultedOrder(input: VaultedOrderInput): Promise<Orde
       },
     },
   })
-
-  // With a vault id the order usually comes back already captured.
-  if (order.status === 'COMPLETED') return toResult(order)
-  return captureOrder(order.id, `${input.requestId}:capture`)
 }
 
 export async function captureOrder(orderId: string, requestId: string): Promise<OrderResult> {

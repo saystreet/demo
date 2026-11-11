@@ -21,6 +21,7 @@ import { mandateRoutes } from './mandate/routes'
 import { orderRoutes } from './orders/routes'
 import { speechRoutes } from './speech/routes'
 import { templates } from './templates'
+import { serveItemImage } from './paypal/item-image'
 import { paypalWebhook } from './webhooks/paypal'
 
 // The built frontend. The path is the same from src/ (dev) and dist/ (prod).
@@ -38,6 +39,10 @@ app.use('*', async (c, next) => {
   await next()
   c.header('X-Robots-Tag', 'noindex, nofollow')
 })
+
+// The product photo on PayPal's order pages (paypal/item-image.ts). Ahead of the headers below:
+// it is the one response another site (PayPal) may load.
+app.get('/api/images/:file', serveItemImage)
 
 // Standard protections: no framing (so no page can lay a hidden Pay button under a click),
 // no MIME sniffing, a strict referrer, same-origin resources.

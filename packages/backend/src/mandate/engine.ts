@@ -10,6 +10,7 @@ import { shippingCents } from '../env'
 import type { Mandate, Prisma } from '../generated/prisma/client'
 import { createOrderFromPayment, type OrderWithEvents, paypalTrail, spentThisWeek, weekday } from '../orders/service'
 import { createVaultedOrder, type OrderResult, PayPalError } from '../paypal'
+import { itemImageUrl, itemPageUrl } from '../paypal/item-image'
 import { templates } from '../templates'
 
 // The mandate engine (spec section 9). The only code that moves money. The model can only
@@ -253,6 +254,8 @@ async function pay(account: Account, mandate: Mandate): Promise<Decision> {
         shippingCents: mandate.shippingCents,
         vaultId: wallet.vaultId,
         shipTo: mandate.shipTo as ShippingAddress,
+        imageUrl: itemImageUrl(mandate.id, mandate.imageUrl),
+        itemUrl: itemPageUrl(mandate.sourceUrl),
       })
     } catch (caught) {
       error = caught
