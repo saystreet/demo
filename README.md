@@ -8,7 +8,7 @@
 
 Find, compare, buy, track and return in one conversation. Nothing is paid until you say the exact total.
 
-**[Try the live demo](https://demo.saystreet.app)** · [Run your own](#run-it-yourself) · [Landing page](https://saystreet.app)
+**[Try the live demo](https://demo.saystreet.app)** · [Devpost](https://devpost.com/software/saystreet) · [Run your own](#run-it-yourself) · [Landing page](https://saystreet.app)
 
 [![Live demo](https://img.shields.io/badge/live_demo-demo.saystreet.app-ffd166?labelColor=0a1124)](https://demo.saystreet.app)
 [![PayPal AI Hackathon](https://img.shields.io/badge/hackathon-PayPal_AI-0070e0)](https://paypalaihackathon.devpost.com/)
@@ -147,7 +147,7 @@ pnpm dev
 
 **Connect the sandbox buyer** once, so new accounts can pay without a PayPal login: open `/admin/vault?key=<ADMIN_TOKEN>` on your server, press "Connect sandbox buyer", log in with a sandbox **personal** account, then put the `DEMO_VAULT_ID` it shows into `.env` (or Render's Environment) and restart. Until then everything else works, and an account that connects its own PayPal sandbox account can already pay.
 
-**Checks:** `pnpm test` (amount parsing, ranking, variants, the money guard, return rules) and `pnpm typecheck` run in CI on every push. `pnpm --filter @saystreet/backend smoke [url]` runs a real sandbox payment, shipping, a refund, a price change and account isolation against a running server.
+**Checks:** `pnpm test` runs 212 unit tests (amount parsing, ranking, variants, the money guard, return rules) and `pnpm typecheck` run in CI on every push. `pnpm --filter @saystreet/backend smoke [url]` runs a real sandbox payment, shipping, a refund, a price change and account isolation against a running server.
 
 | Path | What |
 |---|---|
