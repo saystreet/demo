@@ -3,7 +3,9 @@ import { describe, expect, it } from 'vitest'
 import { isAffirmation, parseAmount, parseIntent } from './parse'
 
 // The hint SayStreet gives ("say pay …") and the receipt total must both come back as the same
-// cents, for every amount up to $999.99 (limits stop at $500 a purchase).
+// cents, for every amount up to $999.99 (limits stop at $500 a purchase). That's 200,000 parses:
+// about 2.5 s on a laptop and more on a shared CI runner, so it gets its own timeout instead of
+// vitest's default 5 s.
 describe('round trip: what SayStreet tells people to say', () => {
   it('speakAmount and formatUSD parse back to the same cents', () => {
     const misheard: string[] = []
@@ -14,7 +16,7 @@ describe('round trip: what SayStreet tells people to say', () => {
       }
     }
     expect(misheard.slice(0, 10)).toEqual([])
-  })
+  }, 30_000)
 })
 
 describe('parseIntent: spec table (section 10)', () => {
