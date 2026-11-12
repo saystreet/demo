@@ -36,7 +36,7 @@ They already turn to AI to get around it: in WebAIM's 2026 survey, 91.8% of scre
 
 ## Try it in two minutes
 
-1. Open [demo.saystreet.app](https://demo.saystreet.app). You pay with a shared sandbox buyer, so there's nothing to log in to. Choose who reads the replies: your screen reader, or SayStreet's voice.
+1. Open [demo.saystreet.app](https://demo.saystreet.app) and choose who reads the replies: your screen reader, or SayStreet's voice. On the **Connect PayPal** step, press **Skip** to pay with a shared sandbox buyer, so there's nothing to log in to, or connect your own PayPal sandbox account.
 2. Hold **Talk** (or the Space bar) and say, or type: **"Find a whistling kettle under 40 dollars."**
 3. Ask about the options: **"How much is the second one?"**, **"Which one has better reviews?"**, **"Does the first one work on induction?"**
 4. **"Buy option one."** SayStreet reads the total, the shipping and the address.
@@ -83,9 +83,9 @@ All calls go to the PayPal sandbox REST API from the backend ([`packages/backend
 | Return | Payments v2: `POST /v2/payments/captures/{id}/refund` |
 | Settle pending payments and refunds | Webhooks: `POST /v1/notifications/verify-webhook-signature`, then `PAYMENT.CAPTURE.*` events |
 
-The vault is what makes paying by voice possible: the wallet is connected ahead of time, so paying never leaves the conversation. Anyone can connect their own PayPal sandbox account from the welcome dialog or Settings, and SayStreet then ships to its name and address. A sandbox buyer login for this is in the Devpost submission's additional info.
+The vault is what makes paying by voice possible: the wallet is connected ahead of time, so paying never leaves the conversation. Anyone can connect their own PayPal sandbox account from the welcome dialog or Settings, and SayStreet then ships to its name and address. A sandbox buyer login for this is in the Devpost submission's testing instructions.
 
-To see PayPal at work, open an order and look under **At PayPal**: every call SayStreet made for it and every verified webhook, with the HTTP status, PayPal's ids, the PayPal-Request-Id and the time it took. The receipt in the chat and the payment log in Settings show the same.
+To see PayPal at work, open an order and look under **Payment → PayPal details**: every call SayStreet made for it and every verified webhook, with the HTTP status, PayPal's ids, the PayPal-Request-Id and the time it took. The receipt in the chat shows PayPal's answers too, and **Settings → Developer tools** has the payment engine's log: every payment decision and why.
 
 ### How paying stays safe
 
