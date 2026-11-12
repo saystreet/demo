@@ -31,7 +31,7 @@ They already turn to AI to get around it: in WebAIM's 2026 survey, 91.8% of scre
 
 - **One conversation, every step.** Search more than 100 million products, hear three options at a time, ask anything about them, buy, then track or return the order in the same chat.
 - **Your words move the money, not the AI.** The agent can only suggest a purchase. It's paid when you say the exact total; "yes" never pays.
-- **Nothing to fight with.** No CAPTCHA, no payment pop-up, and any time limit can be stretched by saying "more time". It works with VoiceOver, NVDA and the keyboard, or reads replies aloud itself.
+- **Nothing to fight with.** No CAPTCHA, no payment pop-up, and any time limit can be stretched by saying "more time". It's built for VoiceOver, NVDA and the keyboard, or it reads replies aloud itself.
 - **PayPal behind every step.** A wallet saved once with PayPal pays without leaving the conversation, and tracking numbers and refunds go through PayPal too.
 
 ## Try it in two minutes
@@ -40,7 +40,7 @@ They already turn to AI to get around it: in WebAIM's 2026 survey, 91.8% of scre
 2. Hold **Talk** (or the Space bar) and say, or type: **"Find a whistling kettle under 40 dollars."**
 3. Ask about the options: **"How much is the second one?"**, **"Which one has better reviews?"**, **"Does the first one work on induction?"**
 4. **"Buy option one."** SayStreet reads the total, the shipping and the address.
-5. Say **"Pay thirty-four ninety-nine"**, or press **Pay $34.99 with PayPal**. The receipt shows what PayPal answered.
+5. Say the total you heard, for example **"Pay thirty-four ninety-nine"**, or press **Pay**. The receipt shows what PayPal answered.
 6. Then: **"Where is it?"**, **"How much have I spent this week?"**, **"Return my French press."** The demo account comes with four sample orders for this.
 
 Also try "more", "the blue one", "size ten and a half", "buy it again", or paste a product link from a store.
